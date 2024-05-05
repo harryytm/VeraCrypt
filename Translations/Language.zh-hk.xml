@@ -1531,18 +1531,18 @@
     <entry lang="en" key="LINUX_HIDDEN_FILES_PRESENT_IN_KEYFILE_PATH">\n\nWarning: Hidden files are present in a keyfile path. If you need to use them as keyfiles, remove the leading dot from their filenames. Hidden files are visible only if enabled in system options.</entry>
     <entry lang="zh-hk" key="LINUX_EX2MSG_DEVICESECTORSIZEMISMATCH">儲存裝置及 VC 加密區的磁區大小不相符</entry>
     <entry lang="zh-hk" key="LINUX_EX2MSG_ENCRYPTEDSYSTEMREQUIRED">這個操作只能在寄存在加密區上的系統正在運行時才可以執行。</entry>
-    <entry lang="en" key="LINUX_EX2MSG_INSUFFICIENTDATA">未有足夠可用的數據。</entry>
+    <entry lang="zh-hk" key="LINUX_EX2MSG_INSUFFICIENTDATA">未有足夠可用的數據。</entry>
     <entry lang="en" key="LINUX_EX2MSG_KERNELCRYPTOSERVICETESTFAILED">Kernel cryptographic service test failed. The cryptographic service of your kernel most likely does not support volumes larger than 2 TB.\n\nPossible solutions:\n- Upgrade the Linux kernel to version 2.6.33 or later.\n- Disable use of the kernel cryptographic services (Settings > Preferences > System Integration) or use 'nokernelcrypto' mount option on the command line.</entry>
     <entry lang="zh-hk" key="LINUX_EX2MSG_LOOPDEVICESETUPFAILED">無法設立一個 loop 裝置。</entry>
     <entry lang="zh-hk" key="LINUX_EX2MSG_MISSINGARGUMENT">缺少必需的參數。</entry>
     <entry lang="zh-hk" key="LINUX_EX2MSG_MISSINGVOLUMEDATA">缺少加密區數據。</entry>
     <entry lang="zh-hk" key="LINUX_EX2MSG_MOUNTPOINTREQUIRED">必需掛載點。</entry>
     <entry lang="zh-hk" key="LINUX_EX2MSG_MOUNTPOINTUNAVAILABLE">掛載點已經正在使用。</entry>
-    <entry lang="zh-hk" key="LINUX_EX2MSG_PASSWORDEMPTY">沒有密碼或已指定加密鑰檔案。No password or keyfile specified.</entry>
+    <entry lang="zh-hk" key="LINUX_EX2MSG_PASSWORDEMPTY">沒有密碼或已指定加密鑰檔案。</entry>
     <entry lang="en" key="LINUX_EX2MSG_PASSWORDORKEYBOARDLAYOUTINCORRECT">\n\nNote that pre-boot authentication passwords need to be typed in the pre-boot environment where non-US keyboard layouts are not available. Therefore, pre-boot authentication passwords must always be typed using the standard US keyboard layout (otherwise, the password will be typed incorrectly in most cases). However, note that you do NOT need a real US keyboard; you just need to change the keyboard layout in your operating system.</entry>
     <entry lang="en" key="LINUX_EX2MSG_PASSWORDORMOUNTOPTIONSINCORRECT">\n\nNote: If you are attempting to mount a partition located on an encrypted system drive without pre-boot authentication or to mount the encrypted system partition of an operating system that is not running, you can do so by selecting 'Options >' > 'Mount partition using system encryption'.</entry>
     <entry lang="zh-hk" key="LINUX_EX2MSG_PASSWORDTOOLONG">密碼超過 {0} 個字元。</entry>
-    <entry lang="zh-hk" key="LINUX_EX2MSG_PARTITIONDEVICEREQUIRED">必需分割區的裝置</entry>
+    <entry lang="zh-hk" key="LINUX_EX2MSG_PARTITIONDEVICEREQUIRED">必須分割區的裝置</entry>
     <entry lang="en" key="LINUX_EX2MSG_PROTECTIONPASSWORDINCORRECT">Incorrect password to the protected hidden volume or the hidden volume does not exist.</entry>
     <entry lang="en" key="LINUX_EX2MSG_PROTECTIONPASSWORDKEYFILESINCORRECT">Incorrect keyfile(s) and/or password to the protected hidden volume or the hidden volume does not exist.</entry>
     <entry lang="zh-hk" key="LINUX_EX2MSG_STRINGCONVERSIONFAILED">遇上無效的字元。</entry>
@@ -1618,7 +1618,7 @@
     <entry lang="zh-hk" key="EMV_ICC_CERT_NOTFOUND">卡片中無法找到ICC 公開鑰匙證書。</entry>
     <entry lang="zh-hk" key="EMV_ISSUER_CERT_NOTFOUND">卡片中無法找到發行者公開鑰匙證書。</entry>
     <entry lang="zh-hk" key="EMV_CPLC_NOTFOUND">EMV 卡片中無法找到 CLPC。</entry>
-    <entry lang="zh-hk" key="EMV_PAN_NOTFOUND">在 EMV 卡片中找不到 Primary Account Number (PAN)。</entry>
+    <entry lang="zh-hk" key="EMV_PAN_NOTFOUND">在 EMV 卡片中找不到 PAN (Primary Account Number)。</entry>
     <entry lang="zh-hk" key="INVALID_EMV_PATH">EMV 路徑無效。</entry>
     <entry lang="zh-hk" key="EMV_KEYFILE_DATA_NOTFOUND">無法使用 ENV 卡片中的數據建立加密鑰匙檔案。\n\n缺少以下任何一項：\n- ICC 公開鑰匙證書。\n- 發行者公開鑰匙證書。\n- CPCL 數據。</entry>
     <entry lang="zh-hk" key="SCARD_W_REMOVED_CARD">讀卡機中沒有卡片。\n\n請確認卡片已正確地插入。</entry>
@@ -1632,12 +1632,12 @@
     <entry lang="zh-hk" key="EXPANDER_UNMOUNTING_VOLUME">正在卸載加密區 ...\n</entry>
     <entry lang="zh-hk" key="EXPANDER_EXTENDING_FILESYSTEM">正在擴充檔案系統 ...\n</entry>
     <entry lang="en" key="PARTIAL_SYSENC_MOUNT_READONLY">Warning: The system partition you attempted to mount was not fully encrypted. As a safety measure to prevent potential corruption or unwanted modifications, volume '%s' was mounted as read-only.</entry>
-    <entry lang="en" key="IDC_LINK_KEYFILES_EXTENSIONS_WARNING">Important information on using third-party file extensions</entry>
-    <entry lang="en" key="IDC_DISABLE_MEMORY_PROTECTION">Disable memory protection for Accessibility tools compatibility</entry>
-    <entry lang="en" key="DISABLE_MEMORY_PROTECTION_WARNING">WARNING: Disabling memory protection significantly reduces security. Enable this option ONLY if you rely on Accessibility tools, like Screen Readers, to interact with VeraCrypt's UI.</entry>
+    <entry lang="zh-hk" key="IDC_LINK_KEYFILES_EXTENSIONS_WARNING">使用第三方副檔名的重要資訊</entry>
+    <entry lang="zh-hk" key="IDC_DISABLE_MEMORY_PROTECTION">停用記憶體保護以兼容協助工具</entry>
+    <entry lang="zh-hk" key="DISABLE_MEMORY_PROTECTION_WARNING">警告：停用記憶體保護會大幅減弱安全性。請只在必須依賴協助工具時才啟用此選項，例如透過屏幕閱讀工具以使用 VeraCrypt 的介面。</entry>
     <entry lang="zh-hk" key="LINUX_LANGUAGE">語言</entry>
-    <entry lang="en" key="LINUX_SELECT_SYS_DEFAULT_LANG">Select system's default language</entry>
-    <entry lang="en" key="LINUX_RESTART_FOR_LANGUAGE_CHANGE">For the language change to come into effect, VeraCrypt needs to be restarted.</entry>
+    <entry lang="zh_hk" key="LINUX_SELECT_SYS_DEFAULT_LANG">選擇成為系統的預設語言</entry>
+    <entry lang="zh-hk" key="LINUX_RESTART_FOR_LANGUAGE_CHANGE">為使語言變更生效，VeraCrypt 需要重新啟動。</entry>
   </localization>
   <xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
     <xs:element name="VeraCrypt">
