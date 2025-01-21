@@ -1,16 +1,16 @@
-PATH=%PATH%;%WSDK81%\bin\x86;C:\Program Files\7-Zip;C:\Program Files (x86)\7-Zip
+PATH=%PATH%;%WSDK81%\bin\x86;C:\Program Files\7-Zip;C:\Program Files (x86)\7-Zip;C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x86
 
-set VC_VERSION=1.26.10
-set VC_VERSION_NBRE=1.26.10
+set VC_VERSION=1.26.17
+set VC_VERSION_NBRE=1.26.17
 set SIGNINGPATH=%~dp0
 cd %SIGNINGPATH%
 
-call "..\..\doc\chm\create_chm.bat"
+rem call "..\..\doc\chm\create_chm.bat"
 
 cd %SIGNINGPATH%
 
 rem sign using SHA-256
-signtool sign /v /sha1 88c1ff4b7469ea3915bd8e7635a7567d34f43202 /ac GlobalSign_SHA256_EV_CodeSigning_CA.cer /fd sha256 /tr http://timestamp.digicert.com /td SHA256 "..\Release\Setup Files\VeraCrypt.exe" "..\Release\Setup Files\VeraCrypt Format.exe" "..\Release\Setup Files\VeraCryptExpander.exe" "..\Release\Setup Files\VeraCrypt-x64.exe" "..\Release\Setup Files\VeraCrypt Format-x64.exe" "..\Release\Setup Files\VeraCryptExpander-x64.exe" "..\Release\Setup Files\VeraCrypt-arm64.exe" "..\Release\Setup Files\VeraCrypt Format-arm64.exe" "..\Release\Setup Files\VeraCryptExpander-arm64.exe" "..\Release\Setup Files\VeraCryptSetup.dll" 
+signtool sign /v /sha1 88c1ff4b7469ea3915bd8e7635a7567d34f43202 /ac GlobalSign_SHA256_EV_CodeSigning_CA.cer /fd sha256 /tr http://timestamp.digicert.com /td SHA256 "..\Release\Setup Files\VeraCrypt-x64.exe" "..\Release\Setup Files\VeraCrypt Format-x64.exe" "..\Release\Setup Files\VeraCryptExpander-x64.exe" "..\Release\Setup Files\VeraCrypt-arm64.exe" "..\Release\Setup Files\VeraCrypt Format-arm64.exe" "..\Release\Setup Files\VeraCryptExpander-arm64.exe" "..\Release\Setup Files\VeraCryptSetup.dll" 
 
 rem create setup and MSI
 cd "..\Release\Setup Files\"
@@ -25,7 +25,23 @@ copy ..\..\Setup\Setup.ico .
 del *.xml
 rmdir /S /Q Languages
 mkdir Languages
-copy /V /Y ..\..\..\Translations\*.xml Languages\.
+
+@echo off
+setlocal
+
+rem Define the source and target directories
+set "SOURCE_DIR=..\..\..\Translations"
+set "TARGET_DIR=Languages"
+
+rem Copy files matching Language.xx.xml where xx is any two characters
+copy /V /Y "%SOURCE_DIR%\Language.??.xml" "%TARGET_DIR%\."
+
+rem Copy files matching Language.xx-yy.xml where xx and yy are any two characters
+copy /V /Y "%SOURCE_DIR%\Language.??-??.xml" "%TARGET_DIR%\."
+
+endlocal
+@echo on
+
 del Languages.zip
 7z a -y Languages.zip Languages
 rmdir /S /Q docs

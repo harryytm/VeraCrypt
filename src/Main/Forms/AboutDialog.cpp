@@ -27,7 +27,11 @@ namespace VeraCrypt
 		versionStaticTextFont.SetWeight (wxFONTWEIGHT_BOLD);
 		VersionStaticText->SetFont (versionStaticTextFont);
 
-		VersionStaticText->SetLabel (Application::GetName() + L" " + StringConverter::ToWide (Version::String()));
+		wstring versionStr = StringConverter::ToWide (Version::String());
+#ifdef VC_MACOSX_FUSET
+		versionStr += L" (FUSE-T build)";
+#endif
+		VersionStaticText->SetLabel (Application::GetName() + L" " + versionStr);
 		CopyrightStaticText->SetLabel (TC_STR_RELEASED_BY);
 		WebsiteHyperlink->SetLabel (L"www.idrix.fr");
 
@@ -57,7 +61,7 @@ namespace VeraCrypt
 			L"Paulo Barreto, Brian Gladman, Wei Dai, Peter Gutmann, and many others.\n\n"
 
 			L"Portions of this software:\n"
-			L"Copyright \xA9 2013-2023 IDRIX. All rights reserved.\n"
+			L"Copyright \xA9 2013-2024 IDRIX. All rights reserved.\n"
 			L"Copyright \xA9 2003-2012 TrueCrypt Developers Association. All Rights Reserved.\n"
 			L"Copyright \xA9 1998-2000 Paul Le Roux. All Rights Reserved.\n"
 			L"Copyright \xA9 1998-2008 Brian Gladman. All Rights Reserved.\n"
@@ -70,7 +74,7 @@ namespace VeraCrypt
 			L"Copyright \xA9 1999-2023 Igor Pavlov\n\n"
 
 			L"\nThis software as a whole:\n"
-			L"Copyright \xA9 2013-2023 IDRIX. All rights reserved.\n\n"
+			L"Copyright \xA9 2013-2024 IDRIX. All rights reserved.\n\n"
 
 			L"This software uses wxWidgets library, which is copyright \xA9 1998-2011 Julian Smart, Robert Roebling et al.\n\n"
 

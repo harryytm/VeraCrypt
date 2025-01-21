@@ -177,6 +177,7 @@ typedef struct
 	ULONG MaximumTransferLength;
 	ULONG MaximumPhysicalPages;
 	ULONG AlignmentMask;
+	BOOL VolumeMasterKeyVulnerable;
 } MOUNT_STRUCT;
 
 typedef struct
@@ -316,6 +317,8 @@ typedef struct
 	// is read-only (or mounted an outer/normal TrueCrypt volume as read only)
 	uint32 HiddenSysLeakProtectionCount;
 
+	BOOL MasterKeyVulnerable;
+
 } BootEncryptionStatus;
 
 
@@ -344,23 +347,23 @@ typedef struct
 
 typedef struct
 {
-	byte Fingerprint[WHIRLPOOL_DIGESTSIZE + SHA512_DIGESTSIZE];
+	uint8 Fingerprint[WHIRLPOOL_DIGESTSIZE + SHA512_DIGESTSIZE];
 } BootLoaderFingerprintRequest;
 
 typedef struct
 {
 	wchar_t DevicePath[TC_MAX_PATH];
-	byte Configuration;
+	uint8 Configuration;
 	BOOL DriveIsDynamic;
 	uint16 BootLoaderVersion;
-	byte UserConfiguration;
+	uint8 UserConfiguration;
 	char CustomUserMessage[TC_BOOT_SECTOR_USER_MESSAGE_MAX_LENGTH + 1];
 } GetSystemDriveConfigurationRequest;
 
 typedef struct
 {
 	WipeAlgorithmId WipeAlgorithm;
-	CRYPTOPP_ALIGN_DATA(16) byte WipeKey[MASTER_KEYDATA_SIZE];
+	CRYPTOPP_ALIGN_DATA(16) uint8 WipeKey[MASTER_KEYDATA_SIZE];
 } WipeDecoySystemRequest;
 
 typedef struct
@@ -373,7 +376,7 @@ typedef struct
 typedef struct
 {
 	LARGE_INTEGER Offset;
-	byte Data[TC_SECTOR_SIZE_BIOS];
+	uint8 Data[TC_SECTOR_SIZE_BIOS];
 } WriteBootDriveSectorRequest;
 
 typedef struct
@@ -393,6 +396,7 @@ typedef struct
 	int EncryptionIoRequestCount;
 	int EncryptionItemCount;
 	int EncryptionFragmentSize;
+	int EncryptionMaxWorkItems;
 } EncryptionQueueParameters;
 
 #pragma pack (pop)
@@ -415,6 +419,7 @@ typedef struct
 #define VC_ENCRYPTION_IO_REQUEST_COUNT DRIVER_STR("VeraCryptEncryptionIoRequestCount")
 #define VC_ENCRYPTION_ITEM_COUNT DRIVER_STR("VeraCryptEncryptionItemCount")
 #define VC_ENCRYPTION_FRAGMENT_SIZE DRIVER_STR("VeraCryptEncryptionFragmentSize")
+#define VC_ENCRYPTION_MAX_WORK_ITEMS DRIVER_STR("VeraCryptEncryptionMaxWorkItems")
 
 #define VC_ERASE_KEYS_SHUTDOWN DRIVER_STR("VeraCryptEraseKeysShutdown")
 

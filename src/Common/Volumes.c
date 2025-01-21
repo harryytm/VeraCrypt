@@ -130,19 +130,19 @@
 
 
 
-uint16 GetHeaderField16 (byte *header, int offset)
+uint16 GetHeaderField16 (uint8 *header, int offset)
 {
 	return BE16 (*(uint16 *) (header + offset));
 }
 
 
-uint32 GetHeaderField32 (byte *header, int offset)
+uint32 GetHeaderField32 (uint8 *header, int offset)
 {
 	return BE32 (*(uint32 *) (header + offset));
 }
 
 
-UINT64_STRUCT GetHeaderField64 (byte *header, int offset)
+UINT64_STRUCT GetHeaderField64 (uint8 *header, int offset)
 {
 	UINT64_STRUCT uint64Struct;
 
@@ -160,7 +160,7 @@ UINT64_STRUCT GetHeaderField64 (byte *header, int offset)
 
 typedef struct
 {
-	char DerivedKey[MASTER_KEYDATA_SIZE];
+	unsigned char DerivedKey[MASTER_KEYDATA_SIZE];
 	BOOL Free;
 	LONG KeyReady;
 	int Pkcs5Prf;
@@ -169,15 +169,15 @@ typedef struct
 
 BOOL ReadVolumeHeaderRecoveryMode = FALSE;
 
-int ReadVolumeHeader (BOOL bBoot, char *encryptedHeader, Password *password, int selected_pkcs5_prf, int pim, PCRYPTO_INFO *retInfo, CRYPTO_INFO *retHeaderCryptoInfo)
+int ReadVolumeHeader (BOOL bBoot, unsigned char *encryptedHeader, Password *password, int selected_pkcs5_prf, int pim, PCRYPTO_INFO *retInfo, CRYPTO_INFO *retHeaderCryptoInfo)
 {
-	char header[TC_VOLUME_HEADER_EFFECTIVE_SIZE];
+	unsigned char header[TC_VOLUME_HEADER_EFFECTIVE_SIZE];
 	unsigned char* keyInfoBuffer = NULL;
 	int keyInfoBufferSize = sizeof (KEY_INFO) + 16;
 	size_t keyInfoBufferOffset;
 	PKEY_INFO keyInfo;
 	PCRYPTO_INFO cryptoInfo;
-	CRYPTOPP_ALIGN_DATA(16) char dk[MASTER_KEYDATA_SIZE];
+	CRYPTOPP_ALIGN_DATA(16) unsigned char dk[MASTER_KEYDATA_SIZE];
 	int enqPkcs5Prf, pkcs5_prf;
 	uint16 headerVersion;
 	int status = ERR_PARAMETER_INCORRECT;
@@ -559,21 +559,11 @@ KeyReady:	;
 #ifdef TC_WINDOWS_DRIVER
 				{
 					blake2s_state ctx;
-#ifndef _WIN64
-					NTSTATUS saveStatus = STATUS_INVALID_PARAMETER;
-					KFLOATING_SAVE floatingPointState;	
-					if (HasSSE2())
-						saveStatus = KeSaveFloatingPointState (&floatingPointState);
-#endif
 					blake2s_init (&ctx);
 					blake2s_update (&ctx, keyInfo->master_keydata, MASTER_KEYDATA_SIZE);
 					blake2s_update (&ctx, header, sizeof(header));
 					blake2s_final (&ctx, cryptoInfo->master_keydata_hash);
 					burn(&ctx, sizeof (ctx));
-#ifndef _WIN64
-					if (NT_SUCCESS (saveStatus))
-						KeRestoreFloatingPointState (&floatingPointState);
-#endif
 				}
 #else
 				memcpy (cryptoInfo->master_keydata, keyInfo->master_keydata, MASTER_KEYDATA_SIZE);
@@ -595,6 +585,14 @@ KeyReady:	;
 				{
 					status = ERR_MODE_INIT_FAILED;
 					goto err;
+				}
+
+				// check that first half of keyInfo.master_keydata is different from the second half. If they are the same return error
+				if (memcmp (keyInfo->master_keydata, keyInfo->master_keydata + EAGetKeySize (cryptoInfo->ea), EAGetKeySize (cryptoInfo->ea)) == 0)
+				{
+					cryptoInfo->bVulnerableMasterKey = TRUE;
+					if (retHeaderCryptoInfo)
+						retHeaderCryptoInfo->bVulnerableMasterKey = TRUE;
 				}
 
 				status = ERR_SUCCESS;
@@ -640,7 +638,7 @@ ret:
 }
 
 #if defined(_WIN32) && !defined(_UEFI)
-void ComputeBootloaderFingerprint (byte *bootLoaderBuf, unsigned int bootLoaderSize, byte* fingerprint)
+void ComputeBootloaderFingerprint (uint8 *bootLoaderBuf, unsigned int bootLoaderSize, uint8* fingerprint)
 {
 	// compute Whirlpool+SHA512 fingerprint of bootloader including MBR
 	// we skip user configuration fields:
@@ -696,12 +694,12 @@ void ComputeBootloaderFingerprint (byte *bootLoaderBuf, unsigned int bootLoaderS
 
 #else // TC_WINDOWS_BOOT
 
-int ReadVolumeHeader (BOOL bBoot, char *header, Password *password, int pim, PCRYPTO_INFO *retInfo, CRYPTO_INFO *retHeaderCryptoInfo)
+int ReadVolumeHeader (BOOL bBoot, unsigned char *header, Password *password, int pim, PCRYPTO_INFO *retInfo, CRYPTO_INFO *retHeaderCryptoInfo)
 {
 #ifdef TC_WINDOWS_BOOT_SINGLE_CIPHER_MODE
-	char dk[32 * 2];			// 2 * 256-bit key
+	unsigned char dk[32 * 2];			// 2 * 256-bit key
 #else
-	char dk[32 * 2 * 3];		// 6 * 256-bit key
+	unsigned char dk[32 * 2 * 3];		// 6 * 256-bit key
 #endif
 
 	PCRYPTO_INFO cryptoInfo;
@@ -874,18 +872,18 @@ ret:
 
 // Creates a volume header in memory
 #if defined(_UEFI)
-int CreateVolumeHeaderInMemory(BOOL bBoot, char *header, int ea, int mode, Password *password,
+int CreateVolumeHeaderInMemory(BOOL bBoot, unsigned char *header, int ea, int mode, Password *password,
 	int pkcs5_prf, int pim, char *masterKeydata, PCRYPTO_INFO *retInfo,
 	unsigned __int64 volumeSize, unsigned __int64 hiddenVolumeSize,
 	unsigned __int64 encryptedAreaStart, unsigned __int64 encryptedAreaLength, uint16 requiredProgramVersion, uint32 headerFlags, uint32 sectorSize, BOOL bWipeMode)
 #else
-int CreateVolumeHeaderInMemory (HWND hwndDlg, BOOL bBoot, char *header, int ea, int mode, Password *password,
+int CreateVolumeHeaderInMemory (HWND hwndDlg, BOOL bBoot, unsigned char *header, int ea, int mode, Password *password,
 		   int pkcs5_prf, int pim, char *masterKeydata, PCRYPTO_INFO *retInfo,
 		   unsigned __int64 volumeSize, unsigned __int64 hiddenVolumeSize,
 		   unsigned __int64 encryptedAreaStart, unsigned __int64 encryptedAreaLength, uint16 requiredProgramVersion, uint32 headerFlags, uint32 sectorSize, BOOL bWipeMode)
 #endif // !defined(_UEFI)
 {
-	unsigned char *p = (unsigned char *) header;
+	unsigned char *p = header;
 	static CRYPTOPP_ALIGN_DATA(16) KEY_INFO keyInfo;
 
 	int nUserKeyLen = password? password->Length : 0;
@@ -1214,13 +1212,13 @@ err:
 }
 
 #if !defined(_UEFI)
-BOOL ReadEffectiveVolumeHeader (BOOL device, HANDLE fileHandle, byte *header, DWORD *bytesRead)
+BOOL ReadEffectiveVolumeHeader (BOOL device, HANDLE fileHandle, uint8 *header, DWORD *bytesRead)
 {
 #if TC_VOLUME_HEADER_EFFECTIVE_SIZE > TC_MAX_VOLUME_SECTOR_SIZE
 #error TC_VOLUME_HEADER_EFFECTIVE_SIZE > TC_MAX_VOLUME_SECTOR_SIZE
 #endif
 
-	byte sectorBuffer[TC_MAX_VOLUME_SECTOR_SIZE];
+	uint8 sectorBuffer[TC_MAX_VOLUME_SECTOR_SIZE];
 	DISK_GEOMETRY geometry;
 
 	if (!device)
@@ -1247,13 +1245,13 @@ BOOL ReadEffectiveVolumeHeader (BOOL device, HANDLE fileHandle, byte *header, DW
 }
 
 
-BOOL WriteEffectiveVolumeHeader (BOOL device, HANDLE fileHandle, byte *header)
+BOOL WriteEffectiveVolumeHeader (BOOL device, HANDLE fileHandle, uint8 *header)
 {
 #if TC_VOLUME_HEADER_EFFECTIVE_SIZE > TC_MAX_VOLUME_SECTOR_SIZE
 #error TC_VOLUME_HEADER_EFFECTIVE_SIZE > TC_MAX_VOLUME_SECTOR_SIZE
 #endif
 
-	byte sectorBuffer[TC_MAX_VOLUME_SECTOR_SIZE];
+	uint8 sectorBuffer[TC_MAX_VOLUME_SECTOR_SIZE];
 	DWORD bytesDone;
 	DISK_GEOMETRY geometry;
 
@@ -1322,7 +1320,7 @@ int WriteRandomDataToReservedHeaderAreas (HWND hwndDlg, HANDLE dev, CRYPTO_INFO 
 	char temporaryKey[MASTER_KEYDATA_SIZE];
 	char originalK2[MASTER_KEYDATA_SIZE];
 
-	byte buf[TC_VOLUME_HEADER_GROUP_SIZE];
+	uint8 buf[TC_VOLUME_HEADER_GROUP_SIZE];
 
 	LARGE_INTEGER offset;
 	int nStatus = ERR_SUCCESS;

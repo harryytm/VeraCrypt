@@ -29,11 +29,10 @@ namespace VeraCrypt
 		ArgPim (-1),
 		ArgSize (0),
 		ArgVolumeType (VolumeType::Unknown),
+		ArgAllowScreencapture (false),
 		ArgDisableFileSizeCheck (false),
 		ArgUseLegacyPassword (false),
-#if defined(TC_LINUX ) || defined (TC_FREEBSD)
 		ArgUseDummySudoPassword (false),
-#endif
 		StartBackgroundTask (false)
 	{
 		wxCmdLineParser parser;
@@ -41,6 +40,9 @@ namespace VeraCrypt
 
 		parser.SetSwitchChars (L"-");
 
+#if defined(TC_WINDOWS) || defined(TC_MACOSX)
+		parser.AddSwitch (L"",  L"allow-screencapture",	_("Allow window to be included in screenshots and screen captures (Windows/MacOS)"));
+#endif
 		parser.AddOption (L"",  L"auto-mount",			_("Auto mount device-hosted/favorite volumes"));
 		parser.AddSwitch (L"",  L"backup-headers",		_("Backup volume headers"));
 		parser.AddSwitch (L"",  L"background-task",		_("Start Background Task"));
@@ -142,6 +144,11 @@ namespace VeraCrypt
 			ArgMountOptions = Preferences.DefaultMountOptions;
 		}
 
+#if defined(TC_WINDOWS) || defined(TC_MACOSX)
+		ArgAllowScreencapture = parser.Found (L"allow-screencapture");
+#else
+		ArgAllowScreencapture = true; // Protection against screenshots is supported only on Windows and MacOS
+#endif
 		// Commands
 		if (parser.Found (L"auto-mount", &str))
 		{
@@ -347,6 +354,16 @@ namespace VeraCrypt
 #elif defined (TC_FREEBSD) || defined (TC_SOLARIS)
 				else if (str.IsSameAs (L"UFS", false))
 					ArgFilesystem = VolumeCreationOptions::FilesystemType::UFS;
+				else if (str.IsSameAs (L"Ext2", false))
+					ArgFilesystem = VolumeCreationOptions::FilesystemType::Ext2;
+				else if (str.IsSameAs (L"Ext3", false))
+					ArgFilesystem = VolumeCreationOptions::FilesystemType::Ext3;
+				else if (str.IsSameAs (L"Ext4", false))
+					ArgFilesystem = VolumeCreationOptions::FilesystemType::Ext4;
+				else if (str.IsSameAs (L"NTFS", false))
+					ArgFilesystem = VolumeCreationOptions::FilesystemType::NTFS;
+				else if (str.IsSameAs (L"exFAT", false))
+					ArgFilesystem = VolumeCreationOptions::FilesystemType::exFAT;
 #endif
 				else
 					throw_err (LangString["UNKNOWN_OPTION"] + L": " + str);
@@ -357,9 +374,7 @@ namespace VeraCrypt
 
 		ArgDisableFileSizeCheck = parser.Found (L"no-size-check");
 		ArgUseLegacyPassword = parser.Found (L"legacy-password-maxlength");		
-#if defined(TC_LINUX ) || defined (TC_FREEBSD)
 		ArgUseDummySudoPassword = parser.Found (L"use-dummy-sudo-password");
-#endif
 
 #if !defined(TC_WINDOWS) && !defined(TC_MACOSX)
 		if (parser.Found (L"fs-options", &str))
@@ -824,7 +839,7 @@ namespace VeraCrypt
 			if (wxCONV_FAILED == ulen)
 				throw PasswordUTF8Invalid (SRC_POS);
 			SecureBuffer passwordBuf(ulen);
-			ulen = utf8.FromWChar ((char*) (byte*) passwordBuf, ulen, str, charCount);
+			ulen = utf8.FromWChar ((char*) (uint8*) passwordBuf, ulen, str, charCount);
 			if (wxCONV_FAILED == ulen)
 				throw PasswordUTF8Invalid (SRC_POS);
 			if (ulen > maxUtf8Len)
@@ -835,7 +850,7 @@ namespace VeraCrypt
 					throw PasswordUTF8TooLong (SRC_POS);
 			}
 
-			ConstBufferPtr utf8Buffer ((byte*) passwordBuf, ulen);
+			ConstBufferPtr utf8Buffer ((uint8*) passwordBuf, ulen);
 			return shared_ptr<SecureBuffer>(new SecureBuffer (utf8Buffer));
 		}
 		else

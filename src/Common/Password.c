@@ -173,7 +173,7 @@ int ChangePwd (const wchar_t *lpszVolume, Password *oldPassword, int old_pkcs5, 
 	int nDosLinkCreated = 1, nStatus = ERR_OS_ERROR;
 	wchar_t szDiskFile[TC_MAX_PATH], szCFDevice[TC_MAX_PATH];
 	wchar_t szDosDevice[TC_MAX_PATH];
-	char buffer[TC_VOLUME_HEADER_EFFECTIVE_SIZE];
+	unsigned char buffer[TC_VOLUME_HEADER_EFFECTIVE_SIZE];
 	PCRYPTO_INFO cryptoInfo = NULL, ci = NULL;
 	void *dev = INVALID_HANDLE_VALUE;
 	DWORD dwError;
@@ -370,6 +370,10 @@ int ChangePwd (const wchar_t *lpszVolume, Password *oldPassword, int old_pkcs5, 
 		nStatus = ReadVolumeHeader (FALSE, buffer, oldPassword, old_pkcs5, old_pim, &cryptoInfo, NULL);
 		if (nStatus == ERR_CIPHER_INIT_WEAK_KEY)
 			nStatus = 0;	// We can ignore this error here
+
+		// if the XTS master key is vulnerable, return error and do not allow the user to change the password since the master key will not be changed
+		if ((nStatus == 0) && cryptoInfo->bVulnerableMasterKey)
+			nStatus = ERR_XTS_MASTERKEY_VULNERABLE;
 
 		if (nStatus == ERR_PASSWORD_WRONG)
 		{

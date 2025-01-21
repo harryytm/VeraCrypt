@@ -11,8 +11,8 @@ elseif ( NOT DEFINED NOGUI )
 endif()
 
 # - Set version of the package
-set( FULL_VERSION 		"1.26.10" )
-set( VERSION 			"1.26.10" )
+set( FULL_VERSION 		"1.26.17" )
+set( VERSION 			"1.26.17" )
 set( RELEASE 			"1" )
 
 # - Set PROJECT_NAME and CONFLICT_PACKAGE values
@@ -111,6 +111,15 @@ if ( UNIX )
 		file(READ "/etc/centos-release" CENTOS_RELEASE)
 		string(REGEX MATCH "release ([0-9 /\\.]+)" _ ${CENTOS_RELEASE})
         set(PLATFORM_VERSION ${CMAKE_MATCH_1})
+        
+	# Get fedora release version
+	elseif(EXISTS "/etc/fedora-release")	
+	
+		set ( PLATFORM "Fedora" )
+		
+		file(READ "/etc/fedora-release" FEDORA_RELEASE)
+		string(REGEX MATCH "release ([0-9 /\\.]+)" _ ${FEDORA_RELEASE})
+		set(PLATFORM_VERSION ${CMAKE_MATCH_1})
 	
 	# Only if distribution uses systemd and if all previous files didn't exist
 	# i.e OpenSUSE
@@ -128,6 +137,8 @@ if ( UNIX )
 			set ( PLATFORM "Debian" )
 		elseif ( FULL_PLATFORM MATCHES "^.*CentOS.*$" )
 			set ( PLATFORM "CentOS" )
+		elseif ( FULL_PLATFORM MATCHES "^.*Fedora.*$" )
+			set ( PLATFORM "Fedora" )
 		endif ( )
 		
 		# Get ditribution release version
@@ -164,7 +175,7 @@ if ( PLATFORM STREQUAL "Debian" OR PLATFORM STREQUAL "Ubuntu" )
 		execute_process(COMMAND dpkg --print-architecture OUTPUT_VARIABLE ARCHITECTURE OUTPUT_STRIP_TRAILING_WHITESPACE)
 	endif( )
 	
-elseif ( ( PLATFORM STREQUAL "CentOS" ) OR ( PLATFORM STREQUAL "openSUSE" ) )
+elseif ( ( PLATFORM STREQUAL "CentOS" ) OR ( PLATFORM STREQUAL "openSUSE" ) OR ( PLATFORM STREQUAL "Fedora" ))
 
 	execute_process(COMMAND arch OUTPUT_VARIABLE ARCHITECTURE OUTPUT_STRIP_TRAILING_WHITESPACE)
 	
@@ -241,17 +252,42 @@ if ( ( PLATFORM STREQUAL "Debian" ) OR ( PLATFORM STREQUAL "Ubuntu" ) )
 	set( CPACK_GENERATOR 					"DEB" )																				# mandatory
 	set( CPACK_DEBIAN_PACKAGE_NAME 			${CPACK_PACKAGE_NAME}  )															# mandatory
 	set( CPACK_DEBIAN_FILE_NAME 			${CPACK_PACKAGE_FILE_NAME}.deb )													# mandatory
-	set( CPACK_DEBIAN_PACKAGE_VERSION 		${CPACK_PACKAGE_VERSION} )															# mandatory
+	# -- Use a distro-specific version string to avoid repository conflicts --
+	# e.g. 1.26.17-1~deb11, 1.26.17-1~deb12, 1.26.17-1~ubuntu20.04, etc.
+	if (PLATFORM STREQUAL "Ubuntu")
+		# For something like "24.04", it becomes 1.26.17-1~ubuntu24.04
+		set(CPACK_DEBIAN_PACKAGE_VERSION 
+			"${VERSION}-${RELEASE}~ubuntu${PLATFORM_VERSION}")
+	else() # Debian
+		# Usually just take the major number from e.g. "11.7" => "11"
+		string(REGEX MATCH "^[0-9]+" PLATFORM_VERSION_MAJOR "${PLATFORM_VERSION}")
+		set(CPACK_DEBIAN_PACKAGE_VERSION 
+			"${VERSION}-${RELEASE}~deb${PLATFORM_VERSION_MAJOR}")
+	endif()
+
 	set( CPACK_DEBIAN_PACKAGE_RELEASE 		${CPACK_PACKAGE_RELEASE} )
 	set( CPACK_DEBIAN_PACKAGE_ARCHITECTURE 	${ARCHITECTURE} )																	# mandatory
 	
 	if (NOGUI)
 		# Link against statically built wxWidgets so that we don't depend on any GTK library
-		set( CPACK_DEBIAN_PACKAGE_DEPENDS 		"libfuse2, dmsetup, sudo, libpcsclite1, pcscd" )
+		# In case of Ubuntu 24.04/ Debian 13 or newer, libfuse2 package was renamed libfuse2t64
+		if (   ( ( PLATFORM STREQUAL "Debian" ) AND ( PLATFORM_VERSION VERSION_GREATER_EQUAL "13" ) ) 
+			OR ( ( PLATFORM STREQUAL "Ubuntu" ) AND ( PLATFORM_VERSION VERSION_GREATER_EQUAL "24.04" ) ) )
+			set( CPACK_DEBIAN_PACKAGE_DEPENDS 		"libfuse2t64, dmsetup, sudo, libpcsclite1, pcscd" )
+		else ()
+			set( CPACK_DEBIAN_PACKAGE_DEPENDS 		"libfuse2, dmsetup, sudo, libpcsclite1, pcscd" )
+		endif()
 	else ()
 		# Link against gtk3 version of wxWidgets if >= Debian 10 or >= Ubuntu 18.04
 		# Otherwise, link against gtk2 version of wxWidgets
-		if (   ( ( PLATFORM STREQUAL "Debian" ) AND ( PLATFORM_VERSION VERSION_GREATER_EQUAL "12" ) ) 
+		# In case of Ubuntu 24.04, we depend on libfuse2t64 instead of libfuse2 and we link statically against wxWidgets
+		# because there is a bug in wxWidgets that ships with Ubuntu 24.04 and which was fixed in wxWidgets 3.2.5
+		if (   ( ( PLATFORM STREQUAL "Debian" ) AND ( PLATFORM_VERSION VERSION_GREATER_EQUAL "13" ) ) 
+			OR ( ( PLATFORM STREQUAL "Ubuntu" ) AND ( PLATFORM_VERSION VERSION_GREATER_EQUAL "24.04" ) ) )
+			
+			set( CPACK_DEBIAN_PACKAGE_DEPENDS 		"libgtk-3-0t64, libayatana-appindicator3-1, libfuse2t64, dmsetup, sudo, libpcsclite1, pcscd" )										
+
+		elseif ( ( ( PLATFORM STREQUAL "Debian" ) AND ( PLATFORM_VERSION VERSION_GREATER_EQUAL "12" ) ) 
 			OR ( ( PLATFORM STREQUAL "Ubuntu" ) AND ( PLATFORM_VERSION VERSION_GREATER_EQUAL "23.04" ) ) )
 			
 			set( CPACK_DEBIAN_PACKAGE_DEPENDS 		"libwxgtk3.2-1, libayatana-appindicator3-1, libfuse2, dmsetup, sudo, libpcsclite1, pcscd" )										
@@ -282,7 +318,7 @@ if ( ( PLATFORM STREQUAL "Debian" ) OR ( PLATFORM STREQUAL "Ubuntu" ) )
 	set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA 	${DEBIAN_PREINST};${DEBIAN_POSTINST};${DEBIAN_PRERM};${DEBIAN_POSTRM})
 	set(CPACK_DEBIAN_PACKAGE_CONFLICTS 		"${CONFLICT_PACKAGE}")
 	
-elseif ( ( PLATFORM STREQUAL "CentOS" ) OR ( PLATFORM STREQUAL "openSUSE" ) )
+elseif ( ( PLATFORM STREQUAL "CentOS" ) OR ( PLATFORM STREQUAL "openSUSE" ) OR ( PLATFORM STREQUAL "Fedora" ))
 	
 	# RPM control script(s)
 	file( MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/Packaging/rpm-control)
@@ -305,17 +341,13 @@ elseif ( ( PLATFORM STREQUAL "CentOS" ) OR ( PLATFORM STREQUAL "openSUSE" ) )
 	if (NOGUI)
 		set( CPACK_RPM_PACKAGE_REQUIRES 	"fuse, device-mapper, sudo" )
 	else ()
-		if ( PLATFORM STREQUAL "CentOS" )
-				
-			if ( DEFINED WITHGTK3 AND WITHGTK3 )
-				set( CPACK_RPM_PACKAGE_REQUIRES 	"fuse, device-mapper, gtk3, sudo, pcsc-lite" )
-			else ()
-				set( CPACK_RPM_PACKAGE_REQUIRES 	"fuse, device-mapper, gtk2, sudo, pcsc-lite" )
-			endif()
-			
-		elseif ( PLATFORM STREQUAL "openSUSE" )
-			
-			set( CPACK_RPM_PACKAGE_REQUIRES 	"fuse, device-mapper, gtk2, sudo, pcsc-lite" )
+		find_package(PkgConfig REQUIRED)
+		pkg_check_modules(GTK3 gtk+-3.0)
+		
+		if(GTK3_FOUND)
+			set( CPACK_RPM_PACKAGE_REQUIRES     "fuse, device-mapper, gtk3, sudo, pcsc-lite" )
+		else()
+			set( CPACK_RPM_PACKAGE_REQUIRES     "fuse, device-mapper, gtk2, sudo, pcsc-lite" )
 		endif()
 	endif()
 

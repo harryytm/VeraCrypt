@@ -82,14 +82,71 @@ namespace VeraCrypt
 		LanguageListBox->Append("System default");
 		LanguageListBox->Append("English");
 
-		size_t langCount;
-		langCount = wxDir::GetAllFiles(languagesFolder.GetName(), &langArray, wxEmptyString, wxDIR_FILES);
-		for (size_t i = 0; i < langCount; ++i) {
-			wxFileName filename(langArray[i]);
-			wxString langId = filename.GetName().AfterLast('.');
-			wxString langNative = langEntries[langId];
-			if (!langNative.empty()) {
-				LanguageListBox->Append(langNative);
+		langEntries = {
+				{"system", L"System default"},
+				{"ar", L"العربية"},
+				{"be", L"Беларуская"},
+				{"bg", L"Български"},
+				{"ca", L"Català"},
+				{"co", L"Corsu"},
+				{"cs", L"Čeština"},
+				{"da", L"Dansk"},
+				{"de", L"Deutsch"},
+				{"el", L"Ελληνικά"},
+				{"en", L"English"},
+				{"es", L"Español"},
+				{"et", L"Eesti"},
+				{"eu", L"Euskara"},
+				{"fa", L"فارسي"},
+				{"fi", L"Suomi"},
+				{"fr", L"Français"},
+				{"he", L"עברית"},
+				{"hu", L"Magyar"},
+				{"id", L"Bahasa Indonesia"},
+				{"it", L"Italiano"},
+				{"ja", L"日本語"},
+				{"ka", L"ქართული"},
+				{"ko", L"한국어"},
+				{"lv", L"Latviešu"},
+				{"nb", L"Norsk Bokmål"},
+				{"nl", L"Nederlands"},
+				{"nn", L"Norsk Nynorsk"},
+				{"pl", L"Polski"},
+				{"ro", L"Română"},
+				{"ru", L"Русский"},
+				{"pt-br", L"Português-Brasil"},
+				{"sk", L"Slovenčina"},
+				{"sl", L"Slovenščina"},
+				{"sv", L"Svenska"},
+				{"th", L"ภาษาไทย"},
+				{"tr", L"Türkçe"},
+				{"uk", L"Українська"},
+				{"uz", L"Ўзбекча"},
+				{"vi", L"Tiếng Việt"},
+				{"zh-cn", L"简体中文"},
+				{"zh-hk", L"繁體中文(香港)"},
+				{"zh-tw", L"繁體中文"}
+		};
+
+		if (wxDir::Exists(languagesFolder.GetName())) {
+			size_t langCount;
+			langCount = wxDir::GetAllFiles(languagesFolder.GetName(), &langArray, "*.xml", wxDIR_FILES);
+			for (size_t i = 0; i < langCount; ++i) {
+				wxFileName filename(langArray[i]);
+
+				// Get the name part of the file (without extension)
+				wxString basename = filename.GetName();
+
+				// Check if the basename matches the pattern "Language.langId"
+				if (basename.StartsWith("Language.")) {
+					wxString langId = basename.AfterFirst('.');
+
+					// Verify if the language ID exists in langEntries map
+					wxString langNative = langEntries[langId];
+					if (!langNative.empty()) {
+						LanguageListBox->Append(langNative);
+					}
+				}
 			}
 		}
 #endif
@@ -433,11 +490,11 @@ namespace VeraCrypt
 
 		if (LanguageListBox->GetSelection() != wxNOT_FOUND) {
 			wxString langToFind = LanguageListBox->GetString(LanguageListBox->GetSelection());
-			for (const auto &each: langEntries) {
-				if (each.second == langToFind) {
-					Preferences.Language = each.first;
+			for (map<wxString, std::wstring>::const_iterator each = langEntries.begin(); each != langEntries.end(); ++each) {
+				if (each->second == langToFind) {
+					Preferences.Language = each->first;
 #ifdef DEBUG
-					cout << "Lang set to: " << each.first << endl;
+					cout << "Lang set to: " << each->first << endl;
 #endif
 				}
 			}

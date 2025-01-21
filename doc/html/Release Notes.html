@@ -39,32 +39,106 @@
 <strong>Note to users who created volumes with 1.17 version of VeraCrypt or earlier: </strong><br/>
 <span style="color:#ff0000;">To avoid hinting whether your volumes contain a hidden volume or not, or if you depend on plausible deniability when using hidden volumes/OS, then you must recreate both the outer and hidden volumes including system encryption and hidden OS, discarding existing volumes created prior to 1.18a version of VeraCrypt.</span></li>
 </p>
-<p><strong style="text-align:left">1.26.10</strong> (November 8<sup>th</sup>, 2023):</p>
+
+<p><strong style="text-align:left">1.26.17</strong> (November 24<sup>th</sup>, 2024):</p>
 <ul>
 <li><strong>All OSes:</strong>
 <ul>
-<li>Update translations and documentation</li>
+<li>Added support for SHA-256 x86 intrinsic to enhance the performance of PBKDF2-HMAC-SHA256.</li>
+<li>Updated translations</li>
 </ul>
 </li>
 <li><strong>Windows:</strong>
 	<ul>
-	<li>Better fix for Secure Desktop issues under Windows 11 22H2</li>
+	<li>Dropped support for Windows 32-bit.</li>
+	<li>Set Windows 10 May 2020 Update (version 2004) as the minimum supported version.</li>
+	<li>Fixed driver deadlock under low-memory scenarios caused by re-entrant IRP completions.</li>
+	<li>Fixed failed EFI detection on some PCs where the BootOrder variable is not defined (proposed by @kriegste, GH #360).</li>
+	<li>Fixed "Access Denied" error when updating VeraCrypt using EXE setup following a Windows upgrade.</li>
+	<li>Fixed various issues affecting the EFI system encryption configuration editor.</li>
+	<li>Replaced the deprecated CryptGenRandom with BCryptGenRandom for generating secure random bytes.</li>
+	</ul>
+</li>
+<li><strong>Linux:</strong>
+	<ul>
+	<li>Fixed an assertion issue with the wxWidgets library included in Ubuntu.</li>
+	<li>Improved directory-opening logic by prioritizing xdg-open and adding fallback mechanisms.</li>
+	</ul>
+</li>
+<li><strong>macOS:</strong>
+	<ul>
+	<li>Disabled screen capture by default. Added the --allow-screencapture CLI switch to enable it if needed.</li>
+	</ul>
+</li>
+</ul>
+
+<p><strong style="text-align:left">1.26.15</strong> (September 2<sup>nd</sup>, 2024):</p>
+<ul>
+<li><strong>Windows:</strong>
+<ul>
+	<li>Fix MSI install/uninstall issues:
+		<ul>
+			<li>Fixed error 1603 returned by MSI silent install when REBOOT=ReallySuppress is specified and a reboot is required.</li>
+			<li>Fixed missing documentation and language files from the MSI package.</li>
+			<li>Fixed MSI not installing new documentation and language files when upgrading from an EXE-based installation.</li>
+			<li>Fixed installation folder not being removed after MSI uninstall in some cases.</li>
+		</ul>
+	</li>
+	<li>Fix regression during UEFI system decryption that caused the bootloader to persist.</li>
+</ul>
+</li>
+</ul>
+
+<p><strong style="text-align:left">1.26.14</strong> (August 25<sup>th</sup>, 2024):</p>
+<ul>
+<li><strong>All OSes:</strong>
+<ul>
+<li>Update translations and documentation</li>
+<li>Implement language selection settings in non-Windows versions.</li>
+<li>Make codebase compatible with wxWidgets 3.3 in non-Windows versions.</li>
+<li>Implement detection of volumes affected by XTS master key vulnerability and warn user about it.</li>
+<li>Update mount failure error messages to mention removal of TrueCrypt support and old algorithms.</li>
+</ul>
+</li>
+<li><strong>Windows:</strong>
+	<ul>
+	<li>Better fix for Secure Desktop issues under Windows 11 22H2
+		<ul>
+			<li>IME is now disabled in Secure Desktop because it is known to cause issues</li>
+		</ul>
+	</li>
 	<li>VeraCrypt Expander: Fix expansion of volumes on disks with a sector size different from 512 (by skl0n6)</li>
 	<li>Fix writing wrong EFI System Encryption Advanced Options to registry</li>
 	<li>Don't close Setup when exiting VeraCrypt process through system tray Exit menu</li>
 	<li>Fix failure to format some disks (e.g. VHDX) caused by virtual partition offset not 4K aligned</li>
 	<li>Fallback to absolute positioning when accessing disks if relative positioning fails</li>
+	<li>Update zlib to version 1.3.1</li>
 	</ul>
 </li>
 <li><strong>Linux:</strong>
 	<ul>
 	<li>Focus PIM field when selected (#1239)</li>
 	<li>Fix generic installation script on Konsole in Wayland (#1244)</li>
+	<li>Added the ability to build using wolfCrypt as the cryptographic backend. Disabled by default. (Contributed by wolfSSL, GH PR #1227)</li>
+	<li>Allows GUI to launch in a Wayland-only environment (GH #1264)</li>
+	<li>CLI: Don't initially re-ask PIM if it was already specified (GH #1288)</li>
+	<li>CLI: Fix incorrect max hidden volume size for file containers (GH #1338))</li>
+	<li>Enhance ASLR security of generic installer binaries by adding linked flag for old GCC version (reported by @morton-f on Sourceforge)</li>
 	</ul>
 </li>
 <li><strong>macOS:</strong>
 	<ul>
 	<li>Fix corrupted disk icon in main UI (GH #1218)</li>
+	<li>Fix near zero width PIM input box and simplify wxTextValidator logic (GH #1274)</li>
+	<li>Use correct Disk Utility location when "check filesystem" is ran (GH #1273)</li>
+	<li>Add support for FUSE-T as an alternative to MacFUSE (GH #1055)</li>
+	</ul>
+</li>
+<li><strong>FreeBSD:</strong>
+	<ul>
+	<li>Fix privilege escalation prompts not showing up (GH #1349)</li>
+	<li>Support automatic detection and mounting of ext2/3/4, exFAT, NTFS filesystems (GH #1350)</li>
+	<li>Use correct Disk Utility location when "check filesystem" is ran (GH #1273)</li>
 	</ul>
 </li>
 </ul>

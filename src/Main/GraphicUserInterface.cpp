@@ -37,6 +37,32 @@
 
 namespace VeraCrypt
 {
+	class AdminPasswordGUIRequestHandler : public GetStringFunctor
+	{
+		public:
+		virtual void operator() (string &passwordStr)
+		{
+
+			wxString sValue;
+			if (Gui->GetWaitDialog())
+			{
+				Gui->GetWaitDialog()->RequestAdminPassword(sValue);
+				if (sValue.IsEmpty())
+					throw UserAbort (SRC_POS);
+			}
+			else
+			{
+				wxPasswordEntryDialog dialog (Gui->GetActiveWindow(), LangString["LINUX_ADMIN_PW_QUERY"], LangString["LINUX_ADMIN_PW_QUERY_TITLE"]);
+				if (dialog.ShowModal() != wxID_OK)
+					throw UserAbort (SRC_POS);
+				sValue = dialog.GetValue();
+			}
+			wstring wPassword (sValue);	// A copy of the password is created here by wxWidgets, which cannot be erased
+			finally_do_arg (wstring *, &wPassword, { StringConverter::Erase (*finally_arg); });
+
+			StringConverter::ToSingle (wPassword, passwordStr);
+		}
+	};
 #ifdef TC_MACOSX
 	int GraphicUserInterface::g_customIdCmdV = 0;
 	int GraphicUserInterface::g_customIdCmdA = 0;
@@ -165,6 +191,7 @@ namespace VeraCrypt
 		hiddenVolumeMountOptions.Path = volumePath;
 
 		VolumeType::Enum volumeType = VolumeType::Normal;
+		bool masterKeyVulnerable = false;
 
 		// Open both types of volumes
 		while (true)
@@ -245,6 +272,13 @@ namespace VeraCrypt
 					else
 						ShowWarning ("HEADER_DAMAGED_AUTO_USED_HEADER_BAK");
 				}
+			}
+
+			// check if volume master key is vulnerable
+			if (volume->IsMasterKeyVulnerable())
+			{
+				masterKeyVulnerable = true;
+				ShowWarning ("ERR_XTS_MASTERKEY_VULNERABLE");
 			}
 
 			if (volumeType == VolumeType::Hidden)
@@ -340,6 +374,10 @@ namespace VeraCrypt
 		}
 
 		ShowWarning ("VOL_HEADER_BACKED_UP");
+
+		// display again warning that master key is vulnerable
+		if (masterKeyVulnerable)
+			ShowWarning ("ERR_XTS_MASTERKEY_VULNERABLE");
 	}
 
 	void GraphicUserInterface::BeginInteractiveBusyState (wxWindow *window)
@@ -452,33 +490,7 @@ namespace VeraCrypt
 
 	shared_ptr <GetStringFunctor> GraphicUserInterface::GetAdminPasswordRequestHandler ()
 	{
-		struct AdminPasswordRequestHandler : public GetStringFunctor
-		{
-			virtual void operator() (string &passwordStr)
-			{
-
-				wxString sValue;
-				if (Gui->GetWaitDialog())
-				{
-					Gui->GetWaitDialog()->RequestAdminPassword(sValue);
-					if (sValue.IsEmpty())
-						throw UserAbort (SRC_POS);
-				}
-				else
-				{
-					wxPasswordEntryDialog dialog (Gui->GetActiveWindow(), LangString["LINUX_ADMIN_PW_QUERY"], LangString["LINUX_ADMIN_PW_QUERY_TITLE"]);
-					if (dialog.ShowModal() != wxID_OK)
-						throw UserAbort (SRC_POS);
-					sValue = dialog.GetValue();
-				}
-				wstring wPassword (sValue);	// A copy of the password is created here by wxWidgets, which cannot be erased
-				finally_do_arg (wstring *, &wPassword, { StringConverter::Erase (*finally_arg); });
-
-				StringConverter::ToSingle (wPassword, passwordStr);
-			}
-		};
-
-		return shared_ptr <GetStringFunctor> (new AdminPasswordRequestHandler);
+		return shared_ptr <GetStringFunctor> (new AdminPasswordGUIRequestHandler);
 	}
 
 	int GraphicUserInterface::GetCharHeight (wxWindow *window) const
@@ -814,6 +826,19 @@ namespace VeraCrypt
 			return volume;
 		}
 
+
+		// check if the volume path exists using stat function. Only ENOENT error is handled to exclude permission denied error
+		struct stat statBuf;
+		if (stat (string (*options.Path).c_str(), &statBuf) != 0)
+		{
+			if (errno == ENOENT)
+			{
+				SystemException ex (SRC_POS);
+				ShowError (ex);
+				return volume;
+			}
+		}
+
 		try
 		{
 			if ((!options.Password || options.Password->IsEmpty())
@@ -992,7 +1017,7 @@ namespace VeraCrypt
 					int showFifo = open (string (MainFrame::GetShowRequestFifoPath()).c_str(), O_WRONLY | O_NONBLOCK);
 					throw_sys_if (showFifo == -1);
 
-					byte buf[1] = { 1 };
+					uint8 buf[1] = { 1 };
 					if (write (showFifo, buf, 1) == 1)
 					{
 						close (showFifo);
@@ -1440,6 +1465,7 @@ namespace VeraCrypt
 		/* force the display of the random enriching interface */
 		RandomNumberGenerator::SetEnrichedByUserStatus (false);
 
+		bool masterKeyVulnerable = false;
 		if (restoreInternalBackup)
 		{
 			// Restore header from the internal backup
@@ -1491,6 +1517,8 @@ namespace VeraCrypt
 				ShowError ("VOLUME_HAS_NO_BACKUP_HEADER");
 				return;
 			}
+
+			masterKeyVulnerable = volume->IsMasterKeyVulnerable();
 
 			RandomNumberGenerator::Start();
 			UserEnrichRandomPool (nullptr);
@@ -1590,6 +1618,7 @@ namespace VeraCrypt
 
 						if (decryptRoutine.m_bResult)
 						{
+							masterKeyVulnerable = layout->GetHeader()->IsMasterKeyVulnerable();
 							decryptedLayout = layout;
 							break;
 						}
@@ -1645,6 +1674,12 @@ namespace VeraCrypt
 		}
 
 		ShowInfo ("VOL_HEADER_RESTORED");
+
+		// display warning if the volume master key is vulnerable
+		if (masterKeyVulnerable)
+		{
+			ShowWarning ("ERR_XTS_MASTERKEY_VULNERABLE");
+		}
 	}
 
 	DevicePath GraphicUserInterface::SelectDevice (wxWindow *parent) const
@@ -1850,6 +1885,14 @@ namespace VeraCrypt
 			width += GetScrollbarWidth (listCtrl);
 #endif
 		listCtrl->SetMinSize (wxSize (width, listCtrl->GetMinSize().GetHeight()));
+	}
+
+
+	void GraphicUserInterface::SetContentProtection (bool enable) const
+	{
+#if defined(TC_WINDOWS) || defined(TC_MACOSX)
+		GetActiveWindow()->SetContentProtection(enable ? wxCONTENT_PROTECTION_ENABLED : wxCONTENT_PROTECTION_NONE);
+#endif
 	}
 
 	void GraphicUserInterface::ShowErrorTopMost (const wxString &message) const

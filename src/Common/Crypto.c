@@ -26,6 +26,7 @@
 #else
 #include <strsafe.h>
 #endif
+#include "Crypto/t1ha.h"
 #include "EncryptionThreadPool.h"
 #endif
 #endif
@@ -192,8 +193,7 @@ void EncipherBlock(int cipher, void *data, void *ks)
 	switch (cipher)
 	{
 	case AES:	
-		// In 32-bit kernel mode, due to KeSaveFloatingPointState() overhead, AES instructions can be used only when processing the whole data unit.
-#if (defined (_WIN64) || !defined (TC_WINDOWS_DRIVER)) && !defined (TC_WINDOWS_BOOT)
+#if !defined (TC_WINDOWS_BOOT)
 		if (IsAesHwCpuSupported())
 			aes_hw_cpu_encrypt (ks, data);
 		else
@@ -219,17 +219,11 @@ void EncipherBlock(int cipher, void *data, void *ks)
 
 void EncipherBlocks (int cipher, void *dataPtr, void *ks, size_t blockCount)
 {
-	byte *data = dataPtr;
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-	KFLOATING_SAVE floatingPointState;
-#endif
+	uint8 *data = dataPtr;
 
 	if (cipher == AES
 		&& (blockCount & (32 - 1)) == 0
 		&& IsAesHwCpuSupported()
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-		&& NT_SUCCESS (KeSaveFloatingPointState (&floatingPointState))
-#endif
 		)
 	{
 		while (blockCount > 0)
@@ -240,24 +234,15 @@ void EncipherBlocks (int cipher, void *dataPtr, void *ks, size_t blockCount)
 			blockCount -= 32;
 		}
 
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-		KeRestoreFloatingPointState (&floatingPointState);
-#endif
 	}
 #ifndef WOLFCRYPT_BACKEND	
 #if CRYPTOPP_BOOL_SSE2_INTRINSICS_AVAILABLE && !defined (_UEFI)
 	else if (cipher == SERPENT
 			&& (blockCount >= 4)
 			&& HasSSE2()
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-			&& NT_SUCCESS (KeSaveFloatingPointState (&floatingPointState))
-#endif
 		)
 	{
 		serpent_encrypt_blocks (data, data, blockCount, ks);
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-		KeRestoreFloatingPointState (&floatingPointState);
-#endif
 	}
 #endif
 #if CRYPTOPP_BOOL_X64 && !defined(CRYPTOPP_DISABLE_ASM)
@@ -271,15 +256,9 @@ void EncipherBlocks (int cipher, void *dataPtr, void *ks, size_t blockCount)
 #if CRYPTOPP_BOOL_SSE2_INTRINSICS_AVAILABLE && !defined (_UEFI)
 	else if (cipher == KUZNYECHIK
 			&& HasSSE2()
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-			&& (blockCount >= 4) && NT_SUCCESS (KeSaveFloatingPointState (&floatingPointState))
-#endif
 		)
 	{
 		kuznyechik_encrypt_blocks (data, data, blockCount, ks);
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-		KeRestoreFloatingPointState (&floatingPointState);
-#endif
 	}
 #endif
 #endif
@@ -315,11 +294,9 @@ void DecipherBlock(int cipher, void *data, void *ks)
 #ifndef TC_WINDOWS_BOOT
 
 	case AES:
-#if defined (_WIN64) || !defined (TC_WINDOWS_DRIVER)
 		if (IsAesHwCpuSupported())
-			aes_hw_cpu_decrypt ((byte *) ks + sizeof (aes_encrypt_ctx), data);
+			aes_hw_cpu_decrypt ((uint8 *) ks + sizeof (aes_encrypt_ctx), data);
 		else
-#endif
 			aes_decrypt (data, data, (void *) ((char *) ks + sizeof(aes_encrypt_ctx)));
 		break;
 
@@ -334,45 +311,30 @@ void DecipherBlock(int cipher, void *data, void *ks)
 
 void DecipherBlocks (int cipher, void *dataPtr, void *ks, size_t blockCount)
 {
-	byte *data = dataPtr;
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-	KFLOATING_SAVE floatingPointState;
-#endif
+	uint8 *data = dataPtr;
 
 	if (cipher == AES
 		&& (blockCount & (32 - 1)) == 0
 		&& IsAesHwCpuSupported()
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-		&& NT_SUCCESS (KeSaveFloatingPointState (&floatingPointState))
-#endif
 		)
 	{
 		while (blockCount > 0)
 		{
-			aes_hw_cpu_decrypt_32_blocks ((byte *) ks + sizeof (aes_encrypt_ctx), data);
+			aes_hw_cpu_decrypt_32_blocks ((uint8 *) ks + sizeof (aes_encrypt_ctx), data);
 
 			data += 32 * 16;
 			blockCount -= 32;
 		}
 
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-		KeRestoreFloatingPointState (&floatingPointState);
-#endif
 	}
 #ifndef WOLFCRYPT_BACKEND	
 #if CRYPTOPP_BOOL_SSE2_INTRINSICS_AVAILABLE && !defined (_UEFI)
 	else if (cipher == SERPENT
 			&& (blockCount >= 4)
 			&& HasSSE2()
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-			&& NT_SUCCESS (KeSaveFloatingPointState (&floatingPointState))
-#endif
 		)
 	{
 		serpent_decrypt_blocks (data, data, blockCount, ks);
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-		KeRestoreFloatingPointState (&floatingPointState);
-#endif
 	}
 #endif
 #if CRYPTOPP_BOOL_X64 && !defined(CRYPTOPP_DISABLE_ASM)
@@ -386,15 +348,9 @@ void DecipherBlocks (int cipher, void *dataPtr, void *ks, size_t blockCount)
 #if CRYPTOPP_BOOL_SSE2_INTRINSICS_AVAILABLE && !defined (_UEFI)
 	else if (cipher == KUZNYECHIK			
 			&& HasSSE2()
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-			&& (blockCount >= 4) && NT_SUCCESS (KeSaveFloatingPointState (&floatingPointState))
-#endif
 		)
 	{
 		kuznyechik_decrypt_blocks (data, data, blockCount, ks);
-#if defined (TC_WINDOWS_DRIVER) && !defined (_WIN64)
-		KeRestoreFloatingPointState (&floatingPointState);
-#endif
 	}
 #endif
 #endif
@@ -659,8 +615,8 @@ int EAGetNextMode (int ea, int previousModeId)
 	return 0;
 }
 
-// Returns the name of the mode of operation of the whole EA
-wchar_t *EAGetModeName (int ea, int mode, BOOL capitalLetters)
+// Returns the name of the mode of operation
+const wchar_t *EAGetModeName (int mode)
 {
 	switch (mode)
 	{
@@ -669,7 +625,7 @@ wchar_t *EAGetModeName (int ea, int mode, BOOL capitalLetters)
 		return L"XTS";
 
 	}
-	return L"[unknown]";
+	return L"[UNKNOWN]";
 }
 
 #endif // TC_WINDOWS_BOOT
@@ -855,7 +811,7 @@ int GetMaxPkcs5OutSize (void)
 
 #ifdef TC_WINDOWS_BOOT
 
-static byte CryptoInfoBufferInUse = 0;
+static uint8 CryptoInfoBufferInUse = 0;
 CRYPTO_INFO CryptoInfoBuffer;
 
 #endif
@@ -891,7 +847,7 @@ PCRYPTO_INFO crypto_open ()
 }
 
 #ifndef TC_WINDOWS_BOOT
-void crypto_loadkey (PKEY_INFO keyInfo, char *lpszUserKey, int nUserKeyLen)
+void crypto_loadkey (PKEY_INFO keyInfo, unsigned char *lpszUserKey, int nUserKeyLen)
 {
 	keyInfo->keyLength = nUserKeyLen;
 	burn (keyInfo->userKey, sizeof (keyInfo->userKey));
@@ -1118,7 +1074,7 @@ void EncipherBlock(int cipher, void *data, void *ks)
 {
 #ifdef TC_WINDOWS_BOOT_AES
 	if (IsAesHwCpuSupported())
-		aes_hw_cpu_encrypt ((byte *) ks, data);
+		aes_hw_cpu_encrypt ((uint8 *) ks, data);
 	else
 		aes_encrypt (data, data, ks); 
 #elif defined (TC_WINDOWS_BOOT_SERPENT) && !defined (WOLFCRYPT_BACKEND)
@@ -1134,9 +1090,9 @@ void DecipherBlock(int cipher, void *data, void *ks)
 {
 #ifdef TC_WINDOWS_BOOT_AES
 	if (IsAesHwCpuSupported())
-		aes_hw_cpu_decrypt ((byte *) ks + sizeof (aes_encrypt_ctx) + 14 * 16, data);
+		aes_hw_cpu_decrypt ((uint8 *) ks + sizeof (aes_encrypt_ctx) + 14 * 16, data);
 	else
-		aes_decrypt (data, data, (aes_decrypt_ctx *) ((byte *) ks + sizeof(aes_encrypt_ctx))); 
+		aes_decrypt (data, data, (aes_decrypt_ctx *) ((uint8 *) ks + sizeof(aes_encrypt_ctx))); 
 #elif defined (TC_WINDOWS_BOOT_SERPENT) && !defined (WOLFCRYPT_BACKEND)
 	serpent_decrypt (data, data, ks);
 #elif defined (TC_WINDOWS_BOOT_TWOFISH) && !defined (WOLFCRYPT_BACKEND)
@@ -1239,9 +1195,11 @@ static BOOL RamEncryptionEnabled = FALSE;
 
 BOOL IsCpuRngSupported ()
 {
+#ifndef _M_ARM64
 	if (HasRDSEED() || HasRDRAND())
 		return TRUE;
 	else
+#endif
 		return FALSE;
 }
 
@@ -1257,14 +1215,10 @@ BOOL IsCpuRngEnabled ()
 
 BOOL IsRamEncryptionSupported ()
 {
-#ifdef _WIN64
 	if (t1ha_selfcheck__t1ha2() == 0)
 		return TRUE;
 	else
 		return FALSE;
-#else
-	return FALSE;
-#endif
 }
 
 void EnableRamEncryption (BOOL enable)
@@ -1278,7 +1232,7 @@ BOOL IsRamEncryptionEnabled ()
 }
 
 /* masking for random index to remove bias */
-byte GetRngMask (byte count)
+uint8 GetRngMask (uint8 count)
 {
 	if (count >= 128)
 		return 0xFF;
@@ -1297,10 +1251,10 @@ byte GetRngMask (byte count)
 	return 1;
 }
 
-byte GetRandomIndex (ChaCha20RngCtx* pCtx, byte elementsCount)
+uint8 GetRandomIndex (ChaCha20RngCtx* pCtx, uint8 elementsCount)
 {
-	byte index = 0;
-	byte mask = GetRngMask (elementsCount);
+	uint8 index = 0;
+	uint8 mask = GetRngMask (elementsCount);
 
 	while (TRUE)
 	{
@@ -1313,9 +1267,9 @@ byte GetRandomIndex (ChaCha20RngCtx* pCtx, byte elementsCount)
 	return index;
 }
 
-#if defined(_WIN64) && !defined (_UEFI)
+#if !defined (_UEFI)
 /* declaration of variables and functions used for RAM encryption on 64-bit build */
-static byte* pbKeyDerivationArea = NULL;
+static uint8* pbKeyDerivationArea = NULL;
 static ULONG cbKeyDerivationArea = 0;
 
 static uint64 HashSeedMask = 0;
@@ -1331,9 +1285,9 @@ ULONG AllocTag = 'MMCV';
 BOOL InitializeSecurityParameters(GetRandSeedFn rngCallback)
 {
 	ChaCha20RngCtx ctx;
-	byte pbSeed[CHACHA20RNG_KEYSZ + CHACHA20RNG_IVSZ];
+	uint8 pbSeed[CHACHA20RNG_KEYSZ + CHACHA20RNG_IVSZ];
 #ifdef TC_WINDOWS_DRIVER
-	byte i;
+	uint8 i;
 	char randomStr[4];
 	Dump ("InitializeSecurityParameters BEGIN\n");
 #endif
@@ -1390,7 +1344,7 @@ BOOL InitializeSecurityParameters(GetRandSeedFn rngCallback)
 	cbKeyDerivationArea = 1024 * 1024;
 	do
 	{
-		pbKeyDerivationArea = (byte*) TCalloc(cbKeyDerivationArea);
+		pbKeyDerivationArea = (uint8*) TCalloc(cbKeyDerivationArea);
 		if (!pbKeyDerivationArea)
 			cbKeyDerivationArea >>= 1;
 	} while (!pbKeyDerivationArea && (cbKeyDerivationArea >= (2*PAGE_SIZE)));
@@ -1531,25 +1485,25 @@ void VcUnprotectKeys (PCRYPTO_INFO pCryptoInfo, uint64 encID)
 
 #if defined(_M_ARM64) || defined(__arm__) || defined (__arm64__) || defined (__aarch64__)
 /* dummy implementation that should never be called */
-void aes_hw_cpu_decrypt(const byte* ks, byte* data)
+void aes_hw_cpu_decrypt(const uint8* ks, uint8* data)
 {
 	ks = ks;
 	data = data;
 }
 
-void aes_hw_cpu_decrypt_32_blocks(const byte* ks, byte* data)
+void aes_hw_cpu_decrypt_32_blocks(const uint8* ks, uint8* data)
 {
 	ks = ks;
 	data = data;
 }
 
-void aes_hw_cpu_encrypt(const byte* ks, byte* data)
+void aes_hw_cpu_encrypt(const uint8* ks, uint8* data)
 {
 	ks = ks;
 	data = data;
 }
 
-void aes_hw_cpu_encrypt_32_blocks(const byte* ks, byte* data)
+void aes_hw_cpu_encrypt_32_blocks(const uint8* ks, uint8* data)
 {
 	ks = ks;
 	data = data;

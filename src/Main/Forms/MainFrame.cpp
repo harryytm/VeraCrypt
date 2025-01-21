@@ -84,6 +84,7 @@ namespace VeraCrypt
 		InitTaskBarIcon();
 		InitEvents();
 		InitMessageFilter();
+		InitWindowPrivacy();
 
 		if (!GetPreferences().SecurityTokenModule.IsEmpty() && !SecurityToken::IsInitialized())
 		{
@@ -468,6 +469,12 @@ namespace VeraCrypt
 		MainFrameWndProc = (WNDPROC) GetWindowLongPtr (mainFrameHwnd, GWL_WNDPROC);
 		SetWindowLongPtr (mainFrameHwnd, GWL_WNDPROC, (LONG_PTR) MainFrameWndProcFilter);
 #endif
+	}
+
+
+	void MainFrame::InitWindowPrivacy ()
+	{
+		Gui->SetContentProtection(!CmdLine->ArgAllowScreencapture);
 	}
 
 	void MainFrame::InitPreferences ()
@@ -1437,7 +1444,7 @@ namespace VeraCrypt
 #if defined(TC_UNIX) && !defined(TC_MACOSX)
 			try
 			{
-				byte buf[128];
+				uint8 buf[128];
 				if (read (ShowRequestFifo, buf, sizeof (buf)) > 0 && Gui->IsInBackgroundMode())
 					Gui->SetBackgroundMode (false);
 			}

@@ -936,7 +936,7 @@ void WHIRLPOOL_add(const unsigned char * input,
 	else
 	{
 		uint64* dataBuf = ctx->data;
-		byte* data = (byte *)dataBuf;		
+		uint8* data = (uint8 *)dataBuf;		
 		num = oldCountLo & 63;
 
 		if (num != 0)	// process left over data
@@ -957,28 +957,35 @@ void WHIRLPOOL_add(const unsigned char * input,
 		}
 
 		// now process the input data in blocks of 64 bytes and save the leftovers to ctx->data
-		if (len >= 64)
-		{
-			if (input == data)
-			{
-				HashMultipleBlocks(ctx, dataBuf, 64);
-				return;
-			}
-			else if (IsAligned16(input))
-			{
-				uint64 leftOver = HashMultipleBlocks(ctx, (uint64 *)input, len);
-				input += (len - leftOver);
-				len = leftOver;
-			}
-			else
-				do
-				{   // copy input first if it's not aligned correctly
-					memcpy(data, input, 64);
-					HashMultipleBlocks(ctx, dataBuf, 64);
-					input+=64;
-					len-=64;
-				} while (len >= 64);
-		}
+        if (len >= 64)
+        {
+            if (input == data)
+            {
+                HashMultipleBlocks(ctx, dataBuf, 64);
+                return;
+            }
+            else
+            {
+#ifndef CRYPTOPP_ALLOW_UNALIGNED_DATA_ACCESS
+                if (IsAligned16(input))
+#endif
+                {
+                    uint64 leftOver = HashMultipleBlocks(ctx, (uint64*)input, len);
+                    input += (len - leftOver);
+                    len = leftOver;
+                }
+#ifndef CRYPTOPP_ALLOW_UNALIGNED_DATA_ACCESS
+                else
+                    do
+                    {   // copy input first if it's not aligned correctly
+                        memcpy(data, input, 64);
+                        HashMultipleBlocks(ctx, dataBuf, 64);
+                        input += 64;
+                        len -= 64;
+                    } while (len >= 64);
+#endif
+            }
+        }
 
 		if (len && data != input)
 			memcpy(data, input, (size_t) len);
@@ -996,7 +1003,7 @@ void WHIRLPOOL_finalize(WHIRLPOOL_CTX * const ctx,
 	unsigned int num = ctx->countLo & 63;
 	uint64* dataBuf = ctx->data;
 	uint64* stateBuf = ctx->state;
-	byte* data = (byte *)dataBuf;
+	uint8* data = (uint8 *)dataBuf;
 
 	data[num++] = 0x80;
 	if (num <= 32)

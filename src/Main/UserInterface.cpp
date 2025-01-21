@@ -32,6 +32,15 @@
 
 namespace VeraCrypt
 {
+	class AdminPasswordRequestHandler : public GetStringFunctor
+	{
+		public:
+		virtual void operator() (string &str)
+		{
+			throw ElevationFailed (SRC_POS, "sudo", 1, "");
+		}
+	};
+
 	UserInterface::UserInterface ()
 	{
 	}
@@ -390,7 +399,7 @@ namespace VeraCrypt
 			errOutput += StringConverter::ToWide (execEx->GetErrorOutput());
 
 			if (errOutput.empty())
-				return errOutput + StringFormatter (LangString["LINUX_COMMAND_GET_ERROR"], execEx->GetCommand(), execEx->GetExitCode());
+				return errOutput + static_cast<wstring>(StringFormatter (LangString["LINUX_COMMAND_GET_ERROR"], execEx->GetCommand(), execEx->GetExitCode()));
 
 			return wxString (errOutput).Trim (true);
 		}
@@ -487,8 +496,8 @@ namespace VeraCrypt
 		EX2MSG (PasswordOrKeyboardLayoutIncorrect,	LangString["PASSWORD_OR_KEYFILE_WRONG"] + LangString["LINUX_EX2MSG_PASSWORDORKEYBOARDLAYOUTINCORRECT"]);
 		EX2MSG (PasswordOrMountOptionsIncorrect,	LangString["PASSWORD_OR_KEYFILE_OR_MODE_WRONG"] + LangString["LINUX_EX2MSG_PASSWORDORMOUNTOPTIONSINCORRECT"]);
 		EX2MSG (PasswordTooLong,					StringFormatter (LangString["LINUX_EX2MSG_PASSWORDTOOLONG"], (int) VolumePassword::MaxSize));
-		EX2MSG (PasswordUTF8TooLong,				LangString["PASSWORD_UTF8_TOO_LONG"]);
-		EX2MSG (PasswordLegacyUTF8TooLong,			LangString["LEGACY_PASSWORD_UTF8_TOO_LONG"]);
+		EX2MSG (PasswordUTF8TooLong,				StringFormatter (LangString["PASSWORD_UTF8_TOO_LONG"], (int) VolumePassword::MaxSize));
+		EX2MSG (PasswordLegacyUTF8TooLong,			StringFormatter (LangString["LEGACY_PASSWORD_UTF8_TOO_LONG"], (int) VolumePassword::MaxLegacySize));
 		EX2MSG (PasswordUTF8Invalid,				LangString["PASSWORD_UTF8_INVALID"]);
 		EX2MSG (PartitionDeviceRequired,			LangString["LINUX_EX2MSG_PARTITIONDEVICEREQUIRED"]);
 		EX2MSG (ProtectionPasswordIncorrect,		LangString["LINUX_EX2MSG_PROTECTIONPASSWORDINCORRECT"]);
@@ -558,20 +567,10 @@ namespace VeraCrypt
 		}
 		else
 		{
-			struct AdminPasswordRequestHandler : public GetStringFunctor
-			{
-				virtual void operator() (string &str)
-				{
-					throw ElevationFailed (SRC_POS, "sudo", 1, "");
-				}
-			};
-
 			Core->SetAdminPasswordCallback (shared_ptr <GetStringFunctor> (new AdminPasswordRequestHandler));
 		}
 
-#if defined(TC_LINUX ) || defined (TC_FREEBSD)
 		Core->ForceUseDummySudoPassword (CmdLine->ArgUseDummySudoPassword);
-#endif
 
 		Core->WarningEvent.Connect (EventConnector <UserInterface> (this, &UserInterface::OnWarning));
 		Core->VolumeMountedEvent.Connect (EventConnector <UserInterface> (this, &UserInterface::OnVolumeMounted));
@@ -651,6 +650,7 @@ namespace VeraCrypt
 
 		bool protectedVolumeMounted = false;
 		bool legacyVolumeMounted = false;
+		bool vulnerableVolumeMounted = false;
 
 		foreach_ref (const HostDevice &device, devices)
 		{
@@ -693,6 +693,10 @@ namespace VeraCrypt
 
 				if (newMountedVolumes.back()->EncryptionAlgorithmMinBlockSize == 8)
 					legacyVolumeMounted = true;
+
+				if (newMountedVolumes.back()->MasterKeyVulnerable)
+					vulnerableVolumeMounted = true;
+				
 			}
 			catch (DriverError&) { }
 			catch (MissingVolumeData&) { }
@@ -707,6 +711,9 @@ namespace VeraCrypt
 		}
 		else
 		{
+			if (vulnerableVolumeMounted)
+				ShowWarning ("ERR_XTS_MASTERKEY_VULNERABLE");
+
 			if (someVolumesShared)
 				ShowWarning ("DEVICE_IN_USE_INFO");
 
@@ -740,10 +747,12 @@ namespace VeraCrypt
 
 			favorite.ToMountOptions (options);
 
+			bool mountPerformed = false;
 			if (Preferences.NonInteractive)
 			{
 				BusyScope busy (this);
 				newMountedVolumes.push_back (Core->MountVolume (options));
+				mountPerformed = true;
 			}
 			else
 			{
@@ -751,6 +760,7 @@ namespace VeraCrypt
 				{
 					BusyScope busy (this);
 					newMountedVolumes.push_back (Core->MountVolume (options));
+					mountPerformed = true;
 				}
 				catch (...)
 				{
@@ -768,6 +778,9 @@ namespace VeraCrypt
 					newMountedVolumes.push_back (volume);
 				}
 			}
+			
+			if (mountPerformed && newMountedVolumes.back()->MasterKeyVulnerable)
+				ShowWarning ("ERR_XTS_MASTERKEY_VULNERABLE");
 		}
 
 		if (!newMountedVolumes.empty() && GetPreferences().CloseSecurityTokenSessionsAfterMount)
@@ -803,6 +816,9 @@ namespace VeraCrypt
 				throw_err (LangString["FILE_IN_USE_FAILED"]);
 			}
 		}
+
+		if (volume->MasterKeyVulnerable)
+			ShowWarning ("ERR_XTS_MASTERKEY_VULNERABLE");
 
 		if (volume->EncryptionAlgorithmMinBlockSize == 8)
 			ShowWarning ("WARN_64_BIT_BLOCK_CIPHER");
@@ -855,6 +871,14 @@ namespace VeraCrypt
 		ShowWarning (e.mException);
 	}
 
+#if !defined(TC_WINDOWS) && !defined(TC_MACOSX)
+// Function to check if a given executable exists and is executable
+static bool IsExecutable(const string& exe) {
+    return wxFileName::IsFileExecutable("/usr/bin/" + exe) ||
+           wxFileName::IsFileExecutable("/usr/local/bin/" + exe);
+}
+#endif
+
 	void UserInterface::OpenExplorerWindow (const DirectoryPath &path)
 	{
 		if (path.IsEmpty())
@@ -879,60 +903,58 @@ namespace VeraCrypt
 		catch (exception &e) { ShowError (e); }
 
 #else
-		// MIME handler for directory seems to be unavailable through wxWidgets
-		wxString desktop = GetTraits()->GetDesktopEnvironment();
-		bool xdgOpenPresent = wxFileName::IsFileExecutable (wxT("/usr/bin/xdg-open")) || wxFileName::IsFileExecutable (wxT("/usr/local/bin/xdg-open"));
-		bool nautilusPresent = wxFileName::IsFileExecutable (wxT("/usr/bin/nautilus")) || wxFileName::IsFileExecutable (wxT("/usr/local/bin/nautilus"));
-
-		if (desktop == L"GNOME" || (desktop.empty() && !xdgOpenPresent && nautilusPresent))
-		{
-			// args.push_back ("--no-default-window"); // This option causes nautilus not to launch under FreeBSD 11
-			args.push_back ("--no-desktop");
-			args.push_back (string (path));
-			try
-			{
-				Process::Execute ("nautilus", args, 2000);
+		string directoryPath = string(path);
+		// Primary attempt: Use xdg-open
+		if (IsExecutable("xdg-open")) {
+			try {
+				args.push_back(directoryPath);
+				Process::Execute("xdg-open", args, 2000);
+				return;
 			}
 			catch (TimeOut&) { }
-			catch (exception &e) { ShowError (e); }
+			catch (exception&) {}
 		}
-		else if (desktop == L"KDE")
-		{
-			try
-			{
-				args.push_back (string (path));
-				Process::Execute ("dolphin", args, 2000);
-			}
-			catch (TimeOut&) { }
-			catch (exception&)
-			{
+
+		// Fallback attempts: Try known file managers
+		const char* fallbackFileManagers[] = { "gio", "kioclient5", "kfmclient", "exo-open", "nautilus", "dolphin", "caja", "thunar", "pcmanfm" };
+		const size_t numFileManagers = sizeof(fallbackFileManagers) / sizeof(fallbackFileManagers[0]);
+
+		for (size_t i = 0; i < numFileManagers; ++i) {
+			const char* fm = fallbackFileManagers[i];
+			if (IsExecutable(fm)) {
 				args.clear();
-				args.push_back ("openURL");
-				args.push_back (string (path));
-				try
-				{
-					Process::Execute ("kfmclient", args, 2000);
+				if (strcmp(fm, "gio") == 0) {
+					args.push_back("open");
+					args.push_back(directoryPath);
+				}
+				else if (strcmp(fm, "kioclient5") == 0) {
+					args.push_back("exec");
+					args.push_back(directoryPath);
+				}
+				else if (strcmp(fm, "kfmclient") == 0) {
+					args.push_back("openURL");
+					args.push_back(directoryPath);
+				}
+				else if (strcmp(fm, "exo-open") == 0) {
+					args.push_back("--launch");
+					args.push_back("FileManager");
+					args.push_back(directoryPath);
+				}
+				else {
+					args.push_back(directoryPath);
+				}
+
+				try {
+					Process::Execute(fm, args, 2000);
+					return; // Success
 				}
 				catch (TimeOut&) { }
-				catch (exception &e) { ShowError (e); }
+				catch (exception &) {}
 			}
 		}
-		else if (xdgOpenPresent)
-		{
-			// Fallback on the standard xdg-open command
-			// which is not always available by default
-			args.push_back (string (path));
-			try
-			{
-				Process::Execute ("xdg-open", args, 2000);
-			}
-			catch (TimeOut&) { }
-			catch (exception &e) { ShowError (e); }
-		}
-		else
-		{
-			ShowWarning (wxT("Unable to find a file manager to open the mounted volume"));
-		}
+
+		ShowWarning(wxT("Unable to find a file manager to open the mounted volume.\n"
+					"Please install xdg-utils or set a default file manager."));
 #endif
 	}
 
@@ -1516,7 +1538,7 @@ namespace VeraCrypt
 		EncryptionTest::TestAll();
 
 		// StringFormatter
-		if (StringFormatter (L"{9} {8} {7} {6} {5} {4} {3} {2} {1} {0} {{0}}", "1", L"2", '3', L'4', 5, 6, 7, 8, 9, 10) != L"10 9 8 7 6 5 4 3 2 1 {0}")
+		if (static_cast<wstring>(StringFormatter (L"{9} {8} {7} {6} {5} {4} {3} {2} {1} {0} {{0}}", "1", L"2", '3', L'4', 5, 6, 7, 8, 9, 10)) != L"10 9 8 7 6 5 4 3 2 1 {0}")
 			throw TestFailed (SRC_POS);
 		try
 		{

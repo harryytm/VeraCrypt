@@ -14,6 +14,7 @@
 #include "Tcdefs.h"
 
 #include <windowsx.h>
+#include <versionhelpers.h>
 #include <dbghelp.h>
 #include <dbt.h>
 #include <Setupapi.h>
@@ -310,12 +311,12 @@ static unsigned char gpbSha512CodeSignCertFingerprint[64] = {
 };
 
 static unsigned char gpbSha512MSCodeSignCertFingerprint[64] = {
-	0xEB, 0x76, 0x2E, 0xD3, 0x5B, 0x4A, 0xB1, 0x0E, 0xF5, 0x3B, 0x99, 0x4E,
-	0xC1, 0xF7, 0x48, 0x88, 0xF6, 0xA0, 0xE9, 0xAC, 0x32, 0x69, 0xCF, 0x20,
-	0xE1, 0x60, 0xC4, 0x0C, 0xEF, 0x01, 0x1F, 0xCB, 0x41, 0x95, 0x72, 0xB9,
-	0xED, 0x63, 0x0C, 0x6B, 0xB9, 0xE9, 0xA2, 0x72, 0xA6, 0x78, 0x96, 0x4C,
-	0x69, 0x9F, 0x90, 0x3F, 0xB1, 0x3C, 0x64, 0xF2, 0xAB, 0xCF, 0x14, 0x1D,
-	0xEC, 0x7C, 0xB0, 0xC7
+	0x17, 0x8C, 0x1B, 0x37, 0x70, 0xBF, 0x8B, 0xDF, 0x84, 0x55, 0xC5, 0x18,
+	0x13, 0x64, 0xE9, 0x65, 0x6D, 0x67, 0xCA, 0x0C, 0xD6, 0x3B, 0x9E, 0x7B,
+	0x9B, 0x6A, 0x63, 0xD6, 0x19, 0xAE, 0xD7, 0xBA, 0xBE, 0x5C, 0xCB, 0xD1,
+	0x07, 0x89, 0x07, 0xFB, 0x12, 0xC0, 0x2C, 0x94, 0x86, 0xEB, 0x67, 0x0B,
+	0x9C, 0x97, 0xEB, 0x20, 0x38, 0x13, 0x9C, 0x0F, 0x56, 0x93, 0x1B, 0x19,
+	0x6F, 0x8F, 0x6A, 0x39
 };
 
 /* Windows dialog class */
@@ -590,18 +591,27 @@ BOOL SaveBufferToFile (const char *inputBuffer, const wchar_t *destinationFile, 
 	DWORD bytesWritten;
 	BOOL res = TRUE;
 	DWORD dwLastError = 0;
+#if defined(SETUP) && !defined (PORTABLE)
+	BOOL securityModified = FALSE;
+	SECURITY_INFO_BACKUP secBackup = { 0 };
+	const wchar_t* existingFile = destinationFile;
+#endif
 
 	dst = CreateFile (destinationFile,
 		GENERIC_WRITE,
 		FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, bAppend ? OPEN_EXISTING : CREATE_ALWAYS, 0, NULL);
 
 	dwLastError = GetLastError();
-	if (!bAppend && bRenameIfFailed && (dst == INVALID_HANDLE_VALUE) && (GetLastError () == ERROR_SHARING_VIOLATION))
+	if (!bAppend && bRenameIfFailed && (dst == INVALID_HANDLE_VALUE) && (GetLastError () == ERROR_SHARING_VIOLATION || GetLastError() == ERROR_ACCESS_DENIED))
 	{
 		wchar_t renamedPath[TC_MAX_PATH + 1];
 		StringCbCopyW (renamedPath, sizeof(renamedPath), destinationFile);
 		StringCbCatW  (renamedPath, sizeof(renamedPath), VC_FILENAME_RENAMED_SUFFIX);
 
+#if defined(SETUP) && !defined (PORTABLE)
+		// Take ownership of the file
+		securityModified = ModifyFileSecurityPermissions(destinationFile, &secBackup);
+#endif
 		/* rename the locked file in order to be able to create a new one */
 		if (MoveFileEx (destinationFile, renamedPath, MOVEFILE_REPLACE_EXISTING))
 		{
@@ -616,10 +626,20 @@ BOOL SaveBufferToFile (const char *inputBuffer, const wchar_t *destinationFile, 
 			}
 			else
 			{
+#if defined(SETUP) && !defined (PORTABLE)
+				existingFile = renamedPath;
+#endif
 				/* delete the renamed file when the machine reboots */
 				MoveFileEx (renamedPath, NULL, MOVEFILE_DELAY_UNTIL_REBOOT);
 			}
 		}
+#if defined(SETUP) && !defined (PORTABLE)
+		if (securityModified)
+		{
+			RestoreSecurityInfo(existingFile, &secBackup);
+			FreeSecurityBackup(&secBackup);
+		}
+#endif
 	}
 
 	if (dst == INVALID_HANDLE_VALUE)
@@ -859,11 +879,6 @@ BOOL VerifyModuleSignature (const wchar_t* path)
 	WINTRUST_DATA      WVTData = {0};
 	wchar_t filePath [TC_MAX_PATH + 1024];
 
-    // we check our own authenticode signature only starting from Windows 10 since this is
-	// the minimal supported OS apart from XP where we can't verify SHA256 signatures
-	if (!IsOSAtLeast (WIN_10))
-		return TRUE;
-
 	// Strip quotation marks (if any)
 	if (path [0] == L'"')
 	{
@@ -1031,6 +1046,20 @@ BOOL IsOSVersionAtLeast (OSVersionEnum reqMinOS, int reqMinServicePack)
 		>= (major << 16 | minor << 8 | reqMinServicePack));
 }
 
+BOOL IsWin10BuildAtLeast(DWORD minBuild)
+{
+	// Must first be recognized as Windows 10 or higher  
+	if (nCurrentOS < WIN_10)
+		return FALSE;
+
+	// If we’re on Windows 10, check build number  
+	if (nCurrentOS == WIN_10 && CurrentOSBuildNumber < minBuild)
+		return FALSE;
+
+	// If we are on a higher version of Windows, we are good to go
+	return TRUE;
+}
+
 #ifdef SETUP_DLL
 static BOOL GetWindowVersionFromFile(DWORD* pdwMajor, DWORD* pdwMinor, DWORD* pdwBuildNumber)
 {
@@ -1087,9 +1116,6 @@ static BOOL GetWindowsVersion(LPOSVERSIONINFOW lpVersionInformation)
 		if (ERROR_SUCCESS == RtlGetVersionFn (lpVersionInformation))
 			bRet = TRUE;
 	}
-
-	if (!bRet)
-		bRet = GetVersionExW (lpVersionInformation);
 
 #ifdef SETUP_DLL
 	// we get real version from Kernel32.dll version since MSI always sets current version to 6.0
@@ -2133,12 +2159,8 @@ BOOL CALLBACK AboutDlgProc (HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam
 
 			// Version
 			SendMessage (GetDlgItem (hwndDlg, IDT_ABOUT_VERSION), WM_SETFONT, (WPARAM) hUserBoldFont, 0);
-			StringCbPrintfW (szTmp, sizeof(szTmp), L"VeraCrypt %s", _T(VERSION_STRING) _T(VERSION_STRING_SUFFIX));
-#ifdef _WIN64
-			StringCbCatW (szTmp, sizeof(szTmp), L"  (64-bit)");
-#else
-			StringCbCatW (szTmp, sizeof(szTmp), L"  (32-bit)");
-#endif
+			StringCbPrintfW (szTmp, sizeof(szTmp), L"VeraCrypt %s", _T(VERSION_STRING) _T(VERSION_STRING_SUFFIX) L"  (64-bit)");
+
 #if (defined(_DEBUG) || defined(DEBUG))
 			StringCbCatW (szTmp, sizeof(szTmp), L"  (debug)");
 #endif
@@ -2156,7 +2178,7 @@ BOOL CALLBACK AboutDlgProc (HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam
 			L"Based on TrueCrypt 7.1a, freely available at http://www.truecrypt.org/ .\r\n\r\n"
 
 			L"Portions of this software:\r\n"
-			L"Copyright \xA9 2013-2023 IDRIX. All rights reserved.\r\n"
+			L"Copyright \xA9 2013-2024 IDRIX. All rights reserved.\r\n"
 			L"Copyright \xA9 2003-2012 TrueCrypt Developers Association. All Rights Reserved.\r\n"
 			L"Copyright \xA9 1998-2000 Paul Le Roux. All Rights Reserved.\r\n"
 			L"Copyright \xA9 1998-2008 Brian Gladman. All Rights Reserved.\r\n"
@@ -2169,7 +2191,7 @@ BOOL CALLBACK AboutDlgProc (HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lParam
 			L"Copyright \xA9 1999-2023 Igor Pavlov\r\n\r\n"
 
 			L"This software as a whole:\r\n"
-			L"Copyright \xA9 2013-2023 IDRIX. All rights reserved.\r\n\r\n"
+			L"Copyright \xA9 2013-2024 IDRIX. All rights reserved.\r\n\r\n"
 
 			L"An IDRIX Release");
 
@@ -2884,7 +2906,7 @@ LRESULT CALLBACK CustomDlgProc (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 static BOOL IsReturnAddress (DWORD64 address)
 {
 	static size_t codeEnd = 0;
-	byte *sp = (byte *) address;
+	uint8 *sp = (uint8 *) address;
 
 	if (codeEnd == 0)
 	{
@@ -3018,7 +3040,7 @@ void ExceptionHandlerThread (void *threadArg)
 
 	MEMORY_BASIC_INFORMATION mi;
 	VirtualQuery (sp, &mi, sizeof (mi));
-	PDWORD stackTop = (PDWORD)((byte *) mi.BaseAddress + mi.RegionSize);
+	PDWORD stackTop = (PDWORD)((uint8 *) mi.BaseAddress + mi.RegionSize);
 	int i = 0;
 
 	while (retAddrs.size() < 16 && &sp[i] < stackTop)
@@ -3171,7 +3193,7 @@ BOOL LaunchElevatedProcess (HWND hwndDlg, const wchar_t* szModPath, const wchar_
 	StringCbCopyW (newCmdLine, sizeof(newCmdLine), L"/q UAC ");
 	StringCbCatW (newCmdLine, sizeof (newCmdLine), args);
 
-	if ((int)ShellExecuteW (hWnd, L"runas", szModPath, newCmdLine, NULL, SW_SHOWNORMAL) <= 32)
+	if ((INT_PTR)ShellExecuteW (hWnd, L"runas", szModPath, newCmdLine, NULL, SW_SHOWNORMAL) <= 32)
 	{
 		if (hwndDlg)
 			handleWin32Error (hwndDlg, SRC_POS);
@@ -3603,10 +3625,16 @@ void InitApp (HINSTANCE hInstance, wchar_t *lpszCommandLine)
 
 	InitOSVersionInfo();
 
-	if (!IsOSAtLeast (WIN_7))
+	if (!IsWin10BuildAtLeast(WIN_10_1809_BUILD))
 	{
-		// abort using a message that says that VeraCrypt can run only on Windows 7 and later and that it is officially supported only on Windows 10 and later
-		AbortProcessDirect(L"VeraCrypt requires at least Windows 7 to run.");
+		// abort using a message that says that VeraCrypt can run only on Windows 10 version 1809 or later
+		AbortProcessDirect(L"VeraCrypt requires at least Windows 10 version 1809 (October 2018 Update) to run.");
+	}
+
+	if (!Is64BitOs())
+	{
+		// abort using a message that says that VeraCrypt can run only on 64-bit Windows
+		AbortProcessDirect(L"VeraCrypt requires a 64-bit version of Windows to run.");
 	}
 
 	SetDefaultDllDirectoriesFn = (SetDefaultDllDirectoriesPtr) GetProcAddress (GetModuleHandle(L"kernel32.dll"), "SetDefaultDllDirectories");
@@ -3794,14 +3822,14 @@ void InitApp (HINSTANCE hInstance, wchar_t *lpszCommandLine)
 	InitHelpFileName ();
 
 #ifndef SETUP
-#ifdef _WIN64
+
 	EnableRamEncryption ((ReadDriverConfigurationFlags() & VC_DRIVER_CONFIG_ENABLE_RAM_ENCRYPTION) ? TRUE : FALSE);
 	if (IsRamEncryptionEnabled())
 	{
 		if (!InitializeSecurityParameters(GetAppRandomSeed))
 			AbortProcess("OUTOFMEMORY");
 	}
-#endif
+
 	if (!EncryptionThreadPoolStart (ReadEncryptionThreadPoolFreeCpuCountLimit()))
 	{
 		handleWin32Error (NULL, SRC_POS);
@@ -3916,7 +3944,7 @@ void NotifyDriverOfPortableMode (void)
 BOOL GetDriveLabel (int driveNo, wchar_t *label, int labelSize)
 {
 	DWORD fileSystemFlags;
-	wchar_t root[] = { L'A' + (wchar_t) driveNo, L':', L'\\', 0 };
+	wchar_t root[] = { (wchar_t) (L'A' + driveNo), L':', L'\\', 0 };
 
 	return GetVolumeInformationW (root, label, labelSize / 2, NULL, NULL, &fileSystemFlags, NULL, 0);
 }
@@ -3946,11 +3974,12 @@ BOOL GetSysDevicePaths (HWND hwndDlg)
 		}
 
 		// Find extra boot partition
-		foreach (const HostDevice &drive, GetAvailableHostDevices (false, false))
+		std::vector <HostDevice> devices = GetAvailableHostDevices(false, false);
+		for (const HostDevice& drive : devices)
 		{
 			if (drive.ContainsSystem)
 			{
-				foreach (const HostDevice &sysDrivePartition, drive.Partitions)
+				for (const HostDevice &sysDrivePartition : drive.Partitions)
 				{
 					if (sysDrivePartition.Bootable)
 					{
@@ -4165,6 +4194,7 @@ BOOL CALLBACK TextEditDlgProc (HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lPa
 	case WM_INITDIALOG:
 		{
 			prm = (TEXT_INFO_DIALOG_PARAM_PTR)lParam;
+			LocalizeDialog (hwndDlg, NULL);
 			// increase size limit of rich edit control
 			SendMessage(GetDlgItem (hwndDlg, IDC_INFO_BOX_TEXT), EM_EXLIMITTEXT, 0, -1);
 
@@ -4175,9 +4205,43 @@ BOOL CALLBACK TextEditDlgProc (HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lPa
 			if (prm->ReadOnly)
 			{
 				// switch rich edit control to ReadOnly
-				SendMessage(GetDlgItem (hwndDlg, IDC_INFO_BOX_TEXT), ES_READONLY, TRUE, 0);
+				SendMessage(GetDlgItem (hwndDlg, IDC_INFO_BOX_TEXT), EM_SETREADONLY , TRUE, 0);
 				// hide cancel button
-				ShowWindow(GetDlgItem(hwndDlg, IDCANCEL), SW_HIDE);
+				HWND hwndCancel = GetDlgItem(hwndDlg, IDCANCEL);
+				ShowWindow(hwndCancel, SW_HIDE);
+
+				// Reposition OK button to Cancel button's position
+				HWND hwndOK = GetDlgItem(hwndDlg, IDOK);
+				if (hwndOK && hwndCancel)
+				{
+					// Get Cancel button's position in screen coordinates
+					RECT rectCancel;
+					if (GetWindowRect(hwndCancel, &rectCancel))
+					{
+						// Convert Cancel button's position to dialog's client coordinates
+						POINT ptCancel = { rectCancel.left, rectCancel.top };
+						ScreenToClient(hwndDlg, &ptCancel);
+
+						// Get OK button's current size
+						RECT rectOK;
+						if (GetWindowRect(hwndOK, &rectOK))
+						{
+							int width = rectOK.right - rectOK.left;
+							int height = rectOK.bottom - rectOK.top;
+
+							// Move OK button to Cancel button's position
+							SetWindowPos(
+								hwndOK,
+								NULL,
+								ptCancel.x,
+								ptCancel.y,
+								width,
+								height,
+								SWP_NOZORDER | SWP_NOACTIVATE
+							);
+						}
+					}
+				}
 			}
 
 			SendMessage (hwndDlg, TC_APPMSG_LOAD_TEXT_BOX_CONTENT, 0, 0);
@@ -4189,8 +4253,12 @@ BOOL CALLBACK TextEditDlgProc (HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lPa
 		{
 			if (!prm->ReadOnly)
 			{
-				prm->Text.resize(GetWindowTextLengthA (GetDlgItem (hwndDlg, IDC_INFO_BOX_TEXT)) + 1);
-				GetWindowTextA (GetDlgItem (hwndDlg, IDC_INFO_BOX_TEXT), &(prm->Text)[0], (int) prm->Text.size());
+				// read content of the text box as UTF16 and then convert it to UTF8
+				HWND hEdit = GetDlgItem(hwndDlg, IDC_INFO_BOX_TEXT);
+				int size = GetWindowTextLengthW(hEdit);
+				std::vector<WCHAR> buffer(size + 1);
+				GetWindowTextW(hEdit, buffer.data(), size + 1);
+				prm->Text = WideToUtf8String(buffer.data());
 			}
 			NormalCursor ();
 			EndDialog (hwndDlg, IDOK);
@@ -4207,7 +4275,8 @@ BOOL CALLBACK TextEditDlgProc (HWND hwndDlg, UINT msg, WPARAM wParam, LPARAM lPa
 
 	case TC_APPMSG_LOAD_TEXT_BOX_CONTENT:
 		{
-			SetWindowTextA (GetDlgItem (hwndDlg, IDC_INFO_BOX_TEXT), prm->Text.c_str());
+			// convert prm->Text to UTF16 using Utf8StringToWide
+			SetWindowTextW(GetDlgItem(hwndDlg, IDC_INFO_BOX_TEXT), Utf8StringToWide(prm->Text).c_str());
 		}
 		return 0;
 
@@ -4830,7 +4899,7 @@ static int DriverLoad ()
 	else
 		*tmp = 0;
 
-	StringCbCatW (driverPath, sizeof(driverPath), !Is64BitOs () ? L"\\veracrypt.sys" : IsARM()? L"\\veracrypt-arm64.sys" : L"\\veracrypt-x64.sys");
+	StringCbCatW (driverPath, sizeof(driverPath), IsARM()? L"\\veracrypt-arm64.sys" : L"\\veracrypt-x64.sys");
 
 	file = FindFirstFile (driverPath, &find);
 
@@ -5354,7 +5423,7 @@ BOOL SelectMultipleFiles(HWND hwndDlg, const char *stringId, BOOL keepHistory, s
 	return status;
 }
 
-BOOL BrowseDirectories(HWND hwndDlg, char *lpszTitle, wchar_t *dirName, const wchar_t *initialDir)
+BOOL BrowseDirectories(HWND hwndDlg, char *lpszDlgTitle, wchar_t *dirName, const wchar_t *initialDir)
 {
 	IFileDialog *pfd = NULL;
 	HRESULT hr;
@@ -5379,9 +5448,9 @@ BOOL BrowseDirectories(HWND hwndDlg, char *lpszTitle, wchar_t *dirName, const wc
 		}
 
 		// Set the title.
-		if (lpszTitle)
+		if (lpszDlgTitle)
 		{
-			pfd->SetTitle(GetString(lpszTitle));
+			pfd->SetTitle(GetString(lpszDlgTitle));
 		}
 
 		IShellItem *psi;
@@ -5577,6 +5646,14 @@ void handleError (HWND hwndDlg, int code, const char* srcPos)
 		break;
 #endif
 
+	case ERR_XTS_MASTERKEY_VULNERABLE:
+		MessageBoxW (hwndDlg, AppendSrcPos (GetString ("ERR_XTS_MASTERKEY_VULNERABLE"), srcPos).c_str(), lpszTitle, ICON_HAND);
+		break;
+
+	case ERR_SYSENC_XTS_MASTERKEY_VULNERABLE:
+		MessageBoxW (hwndDlg, AppendSrcPos (GetString ("ERR_SYSENC_XTS_MASTERKEY_VULNERABLE"), srcPos).c_str(), lpszTitle, ICON_HAND);
+		break;
+
 	default:
 		StringCbPrintfW (szTmp, sizeof(szTmp), GetString ("ERR_UNKNOWN"), code);
 		MessageBoxW (hwndDlg, AppendSrcPos (szTmp, srcPos).c_str(), lpszTitle, ICON_HAND);
@@ -5711,7 +5788,7 @@ BOOL CloseVolumeExplorerWindows (HWND hwnd, int driveNo)
 BOOL UpdateDriveCustomLabel (int driveNo, wchar_t* effectiveLabel, BOOL bSetValue)
 {
 	wchar_t wszRegPath[MAX_PATH];
-	wchar_t driveStr[] = {L'A' + (wchar_t) driveNo, 0};
+	wchar_t driveStr[] = { (wchar_t) (L'A' + driveNo), 0};
 	HKEY hKey;
 	LSTATUS lStatus;
 	DWORD cbLabelLen = (DWORD) ((wcslen (effectiveLabel) + 1) * sizeof (wchar_t));
@@ -5796,24 +5873,24 @@ wstring ArrayToHexWideString (const unsigned char* pbData, int cbData)
 	return result;
 }
 
-bool HexToByte (wchar_t c, byte& b)
+bool HexToByte (wchar_t c, uint8& b)
 {
 	bool bRet = true;
 	if (c >= L'0' && c <= L'9')
-		b = (byte) (c - L'0');
+		b = (uint8) (c - L'0');
 	else if (c >= L'a' && c <= L'z')
-		b = (byte) (c - L'a' + 10);
+		b = (uint8) (c - L'a' + 10);
 	else if (c >= L'A' && c <= L'Z')
-		b = (byte) (c - L'A' + 10);
+		b = (uint8) (c - L'A' + 10);
 	else
 		bRet = false;
 
 	return bRet;
 }
 
-bool HexWideStringToArray (const wchar_t* hexStr, std::vector<byte>& arr)
+bool HexWideStringToArray (const wchar_t* hexStr, std::vector<uint8>& arr)
 {
-	byte b1, b2;
+	uint8 b1, b2;
 	size_t i, len = wcslen (hexStr);
 
 	arr.clear();
@@ -6218,7 +6295,7 @@ static BOOL PerformBenchmark(HWND hBenchDlg, HWND hwndDlg)
 	*/
 	{
 		int thid, i;
-		char dk[MASTER_KEYDATA_SIZE];
+		unsigned char dk[MASTER_KEYDATA_SIZE];
 		char *tmp_salt = {"\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xAA\xBB\xCC\xDD\xEE\xFF\x01\x23\x45\x67\x89\xAB\xCD\xEF\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xAA\xBB\xCC\xDD\xEE\xFF\x01\x23\x45\x67\x89\xAB\xCD\xEF\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xAA\xBB\xCC\xDD\xEE\xFF"};
 
 		for (thid = FIRST_PRF_ID; thid <= LAST_PRF_ID; thid++) 
@@ -6236,27 +6313,27 @@ static BOOL PerformBenchmark(HWND hBenchDlg, HWND hwndDlg)
 
 				case SHA512:
 					/* PKCS-5 test with HMAC-SHA-512 used as the PRF */
-					derive_key_sha512 ("passphrase-1234567890", 21, tmp_salt, 64, get_pkcs5_iteration_count(thid, benchmarkPim, benchmarkPreBoot), dk, MASTER_KEYDATA_SIZE);
+					derive_key_sha512 ((unsigned char*) "passphrase-1234567890", 21, (unsigned char*) tmp_salt, 64, get_pkcs5_iteration_count(thid, benchmarkPim, benchmarkPreBoot), dk, MASTER_KEYDATA_SIZE);
 					break;
 
 				case SHA256:
 					/* PKCS-5 test with HMAC-SHA-256 used as the PRF */
-					derive_key_sha256 ("passphrase-1234567890", 21, tmp_salt, 64, get_pkcs5_iteration_count(thid, benchmarkPim, benchmarkPreBoot), dk, MASTER_KEYDATA_SIZE);
+					derive_key_sha256 ((unsigned char*)"passphrase-1234567890", 21, (unsigned char*) tmp_salt, 64, get_pkcs5_iteration_count(thid, benchmarkPim, benchmarkPreBoot), dk, MASTER_KEYDATA_SIZE);
 					break;
                           #ifndef WOLFCRYPT_BACKEND
 				case BLAKE2S:
 					/* PKCS-5 test with HMAC-BLAKE2s used as the PRF */
-					derive_key_blake2s ("passphrase-1234567890", 21, tmp_salt, 64, get_pkcs5_iteration_count(thid, benchmarkPim, benchmarkPreBoot), dk, MASTER_KEYDATA_SIZE);
+					derive_key_blake2s ((unsigned char*)"passphrase-1234567890", 21, (unsigned char*) tmp_salt, 64, get_pkcs5_iteration_count(thid, benchmarkPim, benchmarkPreBoot), dk, MASTER_KEYDATA_SIZE);
 					break;
 
 				case WHIRLPOOL:
 					/* PKCS-5 test with HMAC-Whirlpool used as the PRF */
-					derive_key_whirlpool ("passphrase-1234567890", 21, tmp_salt, 64, get_pkcs5_iteration_count(thid, benchmarkPim, benchmarkPreBoot), dk, MASTER_KEYDATA_SIZE);
+					derive_key_whirlpool ((unsigned char*)"passphrase-1234567890", 21, (unsigned char*) tmp_salt, 64, get_pkcs5_iteration_count(thid, benchmarkPim, benchmarkPreBoot), dk, MASTER_KEYDATA_SIZE);
 					break;
 
 				case STREEBOG:
 					/* PKCS-5 test with HMAC-STREEBOG used as the PRF */
-					derive_key_streebog("passphrase-1234567890", 21, tmp_salt, 64, get_pkcs5_iteration_count(thid, benchmarkPim, benchmarkPreBoot), dk, MASTER_KEYDATA_SIZE);
+					derive_key_streebog((unsigned char*)"passphrase-1234567890", 21, (unsigned char*) tmp_salt, 64, get_pkcs5_iteration_count(thid, benchmarkPim, benchmarkPreBoot), dk, MASTER_KEYDATA_SIZE);
 					break;
 				}
 	                   #endif	
@@ -6280,19 +6357,11 @@ static BOOL PerformBenchmark(HWND hBenchDlg, HWND hwndDlg)
 				{
 					if (thid == SHA256)
 					{
-#ifdef  _WIN64
 						benchmarkTable[benchmarkTotalItems].meanBytesPerSec = (benchmarkTable[benchmarkTotalItems].meanBytesPerSec * 26);
-#else
-						benchmarkTable[benchmarkTotalItems].meanBytesPerSec = (benchmarkTable[benchmarkTotalItems].meanBytesPerSec * 24);
-#endif
 					}
 					else
 					{
-#ifdef _WIN64
 						benchmarkTable[benchmarkTotalItems].meanBytesPerSec = (benchmarkTable[benchmarkTotalItems].meanBytesPerSec * 21) / 5;
-#else
-						benchmarkTable[benchmarkTotalItems].meanBytesPerSec = (benchmarkTable[benchmarkTotalItems].meanBytesPerSec * 18) / 5;
-#endif
 					}
 				}
 			}
@@ -6315,10 +6384,8 @@ static BOOL PerformBenchmark(HWND hBenchDlg, HWND hwndDlg)
 				if (EAInitMode (ci, ci->k2))
 				{
 					int i;
-#ifdef _WIN64
 					if (IsRamEncryptionEnabled ())
 						VcProtectKeys (ci, VcGetEncryptionID (ci));
-#endif
 
 					for (i = 0; i < 10; i++)
 					{
@@ -6340,10 +6407,8 @@ static BOOL PerformBenchmark(HWND hBenchDlg, HWND hwndDlg)
 				if (!EAInitMode (ci, ci->k2))
 					goto counter_error;
 
-#ifdef _WIN64
 				if (IsRamEncryptionEnabled ())
 					VcProtectKeys (ci, VcGetEncryptionID (ci));
-#endif
 
 				if (QueryPerformanceCounter (&performanceCountStart) == 0)
 					goto counter_error;
@@ -7591,7 +7656,7 @@ CipherTestDialogProc (HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				else
 				{
 
-					CipherInit2(idTestCipher, key, ks_tmp, ks);
+					CipherInit2(idTestCipher, key, ks_tmp);
 
 					if (bEncrypt)
 					{
@@ -8213,7 +8278,7 @@ void BroadcastDeviceChange (WPARAM message, int nDosDriveNo, DWORD driveMap)
 		{
 			if (driveMap & (1 << i))
 			{
-				wchar_t root[] = { (wchar_t) i + L'A', L':', L'\\', 0 };
+				wchar_t root[] = { (wchar_t) (i + L'A'), L':', L'\\', 0 };
 				SHChangeNotify (eventId, SHCNF_PATH, root, NULL);
 
 
@@ -8716,7 +8781,7 @@ retry:
 
 	if ((path.length () >= 3) && (_wcsnicmp (path.c_str(), L"ID:", 3) == 0))
 	{
-		std::vector<byte> arr;
+		std::vector<uint8> arr;
 		if (	(path.length() == (3 + 2*VOLUME_ID_SIZE)) 
 			&& HexWideStringToArray (path.c_str() + 3, arr)
 			&& (arr.size() == VOLUME_ID_SIZE)
@@ -8770,12 +8835,12 @@ retry:
 				wstring drivePath = L"\\\\.\\X:";
 				HANDLE dev = INVALID_HANDLE_VALUE;
 				VOLUME_DISK_EXTENTS extents = {0};
-				DWORD dwResult = 0;
+				DWORD cbReturnedBytes = 0;
 				drivePath[4] = root[0];
 
 				if ((dev = CreateFile (drivePath.c_str(),0, 0, NULL, OPEN_EXISTING, 0, NULL)) != INVALID_HANDLE_VALUE)
 				{
-					if (DeviceIoControl (dev, IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, NULL, 0, &extents, sizeof(extents), &dwResult, NULL))
+					if (DeviceIoControl (dev, IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, NULL, 0, &extents, sizeof(extents), &cbReturnedBytes, NULL))
 					{
 						if (extents.NumberOfDiskExtents > 0)
 						{
@@ -8912,18 +8977,18 @@ retry:
 
 				if (bDevice && mount.bProtectHiddenVolume)
 				{
-					int driveNo;
+					int diskNo;
 
-					if (swscanf (volumePath, L"\\Device\\Harddisk%d\\Partition", &driveNo) == 1)
+					if (swscanf (volumePath, L"\\Device\\Harddisk%d\\Partition", &diskNo) == 1)
 					{
 						OPEN_TEST_STRUCT openTestStruct;
 						memset (&openTestStruct, 0, sizeof (openTestStruct));
 
 						openTestStruct.bDetectTCBootLoader = TRUE;
-						StringCchPrintfW ((wchar_t *) openTestStruct.wszFileName, array_capacity (openTestStruct.wszFileName), L"\\Device\\Harddisk%d\\Partition0", driveNo);
+						StringCchPrintfW ((wchar_t *) openTestStruct.wszFileName, array_capacity (openTestStruct.wszFileName), L"\\Device\\Harddisk%d\\Partition0", diskNo);
 
-						DWORD dwResult;
-						if (DeviceIoControl (hDriver, TC_IOCTL_OPEN_TEST, &openTestStruct, sizeof (OPEN_TEST_STRUCT), &openTestStruct, sizeof (OPEN_TEST_STRUCT), &dwResult, NULL) && openTestStruct.TCBootLoaderDetected)
+						DWORD cbBytesReturned;
+						if (DeviceIoControl (hDriver, TC_IOCTL_OPEN_TEST, &openTestStruct, sizeof (OPEN_TEST_STRUCT), &openTestStruct, sizeof (OPEN_TEST_STRUCT), &cbBytesReturned, NULL) && openTestStruct.TCBootLoaderDetected)
 							WarningDirect ((GetWrongPasswordErrorMessage (hwndDlg) + L"\n\n" + GetString ("HIDDEN_VOL_PROT_PASSWORD_US_KEYB_LAYOUT")).c_str(), hwndDlg);
 						else
 							handleError (hwndDlg, mount.nReturnCode, SRC_POS);
@@ -8953,10 +9018,16 @@ retry:
 	
 	LastMountedVolumeDirty = mount.FilesystemDirty;
 
+	if (mount.VolumeMasterKeyVulnerable
+		&& !Silent)
+	{
+		Warning ("ERR_XTS_MASTERKEY_VULNERABLE", hwndDlg);
+	}
+
 	if (mount.FilesystemDirty)
 	{
 		wchar_t msg[1024];
-		wchar_t mountPoint[] = { L'A' + (wchar_t) driveNo, L':', 0 };
+		wchar_t mountPoint[] = { (wchar_t) (L'A' + driveNo), L':', 0 };
 		StringCbPrintfW (msg, sizeof(msg), GetString ("MOUNTED_VOLUME_DIRTY"), mountPoint);
 
 		if (AskWarnYesNoStringTopmost (msg, hwndDlg) == IDYES)
@@ -8970,7 +9041,7 @@ retry:
 		&& !IsFileOnReadOnlyFilesystem (volumePath))
 	{
 		wchar_t msg[1024];
-		wchar_t mountPoint[] = { L'A' + (wchar_t) driveNo, L':', 0 };
+		wchar_t mountPoint[] = { (wchar_t) (L'A' + driveNo), L':', 0 };
 		StringCbPrintfW (msg, sizeof(msg), GetString ("MOUNTED_CONTAINER_FORCED_READ_ONLY"), mountPoint);
 
 		WarningDirect (msg, hwndDlg);
@@ -8981,7 +9052,7 @@ retry:
 		&& bDevice)
 	{
 		wchar_t msg[1024];
-		wchar_t mountPoint[] = { L'A' + (wchar_t) driveNo, L':', 0 };
+		wchar_t mountPoint[] = { (wchar_t)(L'A' + driveNo), L':', 0 };
 		StringCbPrintfW (msg, sizeof(msg), GetString ("MOUNTED_DEVICE_FORCED_READ_ONLY"), mountPoint);
 
 		WarningDirect (msg, hwndDlg);
@@ -8992,7 +9063,7 @@ retry:
 		&& wcsstr (volumePath, L"\\Device\\Harddisk") == volumePath)
 	{
 		wchar_t msg[1024];
-		wchar_t mountPoint[] = { L'A' + (wchar_t) driveNo, L':', 0 };
+		wchar_t mountPoint[] = { (wchar_t) (L'A' + driveNo), L':', 0 };
 		StringCbPrintfW (msg, sizeof(msg), GetString ("MOUNTED_DEVICE_FORCED_READ_ONLY_WRITE_PROTECTION"), mountPoint);
 
 		WarningDirect (msg, hwndDlg);
@@ -9010,7 +9081,7 @@ retry:
 		&& bDevice)
 	{
 		wchar_t msg[1024];
-		wchar_t mountPoint[] = { L'A' + (wchar_t) driveNo, L':', 0 };
+		wchar_t mountPoint[] = { (wchar_t) (L'A' + driveNo), L':', 0 };
 		StringCbPrintfW (msg, sizeof(msg), GetString ("PARTIAL_SYSENC_MOUNT_READONLY"), mountPoint);
 
 		WarningDirect (msg, hwndDlg);
@@ -9103,7 +9174,7 @@ retry:
 			}
 
 			// Undo SHCNE_DRIVEREMOVED
-			wchar_t root[] = { (wchar_t) nDosDriveNo + L'A', L':', L'\\', 0 };
+			wchar_t root[] = { (wchar_t) (nDosDriveNo + L'A'), L':', L'\\', 0 };
 			SHChangeNotify (SHCNE_DRIVEADD, SHCNF_PATH, root, NULL);
 
 			return FALSE;
@@ -9168,7 +9239,7 @@ BOOL IsMountedVolume (const wchar_t *volname)
 	if ((wcslen (volname) == (3 + 2*VOLUME_ID_SIZE)) && _wcsnicmp (volname, L"ID:", 3) == 0)
 	{
 		/* Volume ID specified. Use it for matching mounted volumes. */
-		std::vector<byte> arr;
+		std::vector<uint8> arr;
 		if (HexWideStringToArray (&volname[3], arr) && (arr.size() == VOLUME_ID_SIZE))
 		{
 			return IsMountedVolumeID (&arr[0]);
@@ -9457,7 +9528,7 @@ int GetDiskDeviceDriveLetter (PWSTR deviceName)
 
 	for (i = 0; i < 26; i++)
 	{
-		WCHAR drive[] = { (WCHAR) i + L'A', L':', 0 };
+		WCHAR drive[] = { (WCHAR) (i + L'A'), L':', 0 };
 
 		StringCchCopyW (link, MAX_PATH, L"\\DosDevices\\");
 		StringCchCatW (link, MAX_PATH, drive);
@@ -10150,7 +10221,7 @@ std::wstring GetServiceConfigPath (const wchar_t *fileName, bool useLegacy)
 {
 	wchar_t sysPath[TC_MAX_PATH];
 
-	if (Is64BitOs() && useLegacy)
+	if (useLegacy)
 	{
 		typedef UINT (WINAPI *GetSystemWow64Directory_t) (LPWSTR lpBuffer, UINT uSize);
 
@@ -10655,12 +10726,12 @@ void OpenPageHelp (HWND hwndDlg, int nPage)
 	}
 	else
 	{
-		int r = (int)ShellExecuteW (NULL, L"open", szHelpFile, NULL, NULL, SW_SHOWNORMAL);
+		INT_PTR r = (INT_PTR)ShellExecuteW (NULL, L"open", szHelpFile, NULL, NULL, SW_SHOWNORMAL);
 
 		if (r == ERROR_FILE_NOT_FOUND)
 		{
 			// Try the secondary help file
-			r = (int)ShellExecuteW (NULL, L"open", szHelpFile2, NULL, NULL, SW_SHOWNORMAL);
+			r = (INT_PTR)ShellExecuteW (NULL, L"open", szHelpFile2, NULL, NULL, SW_SHOWNORMAL);
 
 			if (r == ERROR_FILE_NOT_FOUND)
 			{
@@ -10887,12 +10958,9 @@ BOOL IsARM()
 
 BOOL IsServerOS ()
 {
-	OSVERSIONINFOEXW osVer;
-	osVer.dwOSVersionInfoSize = sizeof (OSVERSIONINFOEXW);
-	GetVersionExW ((LPOSVERSIONINFOW) &osVer);
-
-	return (osVer.wProductType == VER_NT_SERVER || osVer.wProductType == VER_NT_DOMAIN_CONTROLLER);
+	return IsWindowsServer()? TRUE : FALSE;
 }
+
 
 
 // Returns TRUE, if the currently running operating system is installed in a hidden volume. If it's not, or if
@@ -10969,100 +11037,105 @@ std::wstring GetWindowsEdition ()
 {
 	wstring osname = L"win";
 
-	OSVERSIONINFOEXW osVer;
+	OSVERSIONINFOEXW osVer = { 0 };
 	osVer.dwOSVersionInfoSize = sizeof (OSVERSIONINFOEXW);
-	GetVersionExW ((LPOSVERSIONINFOW) &osVer);
-
-	BOOL home = (osVer.wSuiteMask & VER_SUITE_PERSONAL);
-	BOOL server = (osVer.wProductType == VER_NT_SERVER || osVer.wProductType == VER_NT_DOMAIN_CONTROLLER);
-
-	HKEY hkey;
-	wchar_t productName[300] = {0};
-	DWORD productNameSize = sizeof (productName);
-	if (RegOpenKeyEx (HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 0, KEY_QUERY_VALUE, &hkey) == ERROR_SUCCESS)
+	if (GetWindowsVersion((LPOSVERSIONINFOW)&osVer))
 	{
-		if (RegQueryValueEx (hkey, L"ProductName", 0, 0, (LPBYTE) &productName, &productNameSize) != ERROR_SUCCESS || productNameSize < 1)
-			productName[0] = 0;
 
-		RegCloseKey (hkey);
+		BOOL home = (osVer.wSuiteMask & VER_SUITE_PERSONAL);
+		BOOL server = (osVer.wProductType == VER_NT_SERVER || osVer.wProductType == VER_NT_DOMAIN_CONTROLLER);
+
+		HKEY hkey;
+		wchar_t productName[300] = { 0 };
+		DWORD productNameSize = sizeof(productName);
+		if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 0, KEY_QUERY_VALUE, &hkey) == ERROR_SUCCESS)
+		{
+			if (RegQueryValueEx(hkey, L"ProductName", 0, 0, (LPBYTE)&productName, &productNameSize) != ERROR_SUCCESS || productNameSize < 1)
+				productName[0] = 0;
+
+			RegCloseKey(hkey);
+		}
+
+		switch (nCurrentOS)
+		{
+		case WIN_2000:
+			osname += L"2000";
+			break;
+
+		case WIN_XP:
+		case WIN_XP64:
+			osname += L"xp";
+			osname += home ? L"-home" : L"-pro";
+			break;
+
+		case WIN_SERVER_2003:
+			osname += L"2003";
+			break;
+
+		case WIN_VISTA:
+			osname += L"vista";
+			break;
+
+		case WIN_SERVER_2008:
+			osname += L"2008";
+			break;
+
+		case WIN_7:
+			osname += L"7";
+			break;
+
+		case WIN_SERVER_2008_R2:
+			osname += L"2008r2";
+			break;
+
+		default:
+			wstringstream s;
+			s << CurrentOSMajor << L"." << CurrentOSMinor;
+			osname += s.str();
+			break;
+		}
+
+		if (server)
+			osname += L"-server";
+
+		if (IsOSAtLeast(WIN_VISTA))
+		{
+			if (home)
+				osname += L"-home";
+			else if (wcsstr(productName, L"Standard") != 0)
+				osname += L"-standard";
+			else if (wcsstr(productName, L"Professional") != 0)
+				osname += L"-pro";
+			else if (wcsstr(productName, L"Business") != 0)
+				osname += L"-business";
+			else if (wcsstr(productName, L"Enterprise") != 0)
+				osname += L"-enterprise";
+			else if (wcsstr(productName, L"Datacenter") != 0)
+				osname += L"-datacenter";
+			else if (wcsstr(productName, L"Ultimate") != 0)
+				osname += L"-ultimate";
+		}
+
+		if (GetSystemMetrics(SM_STARTER))
+			osname += L"-starter";
+		else if (wcsstr(productName, L"Basic") != 0)
+			osname += L"-basic";
+
+		osname += IsARM() ? L"-arm64" : L"-x64";
+
+		if (CurrentOSServicePack > 0)
+		{
+			wstringstream s;
+			s << L"-sp" << CurrentOSServicePack;
+			osname += s.str();
+		}
+
+		return osname;
 	}
-
-	switch (nCurrentOS)
+	else
 	{
-	case WIN_2000:
-		osname += L"2000";
-		break;
-
-	case WIN_XP:
-	case WIN_XP64:
-		osname += L"xp";
-		osname += home ? L"-home" : L"-pro";
-		break;
-
-	case WIN_SERVER_2003:
-		osname += L"2003";
-		break;
-
-	case WIN_VISTA:
-		osname += L"vista";
-		break;
-
-	case WIN_SERVER_2008:
-		osname += L"2008";
-		break;
-
-	case WIN_7:
-		osname += L"7";
-		break;
-
-	case WIN_SERVER_2008_R2:
-		osname += L"2008r2";
-		break;
-
-	default:
-		wstringstream s;
-		s << CurrentOSMajor << L"." << CurrentOSMinor;
-		osname += s.str();
-		break;
+		return L"";
 	}
-
-	if (server)
-		osname += L"-server";
-
-	if (IsOSAtLeast (WIN_VISTA))
-	{
-		if (home)
-			osname += L"-home";
-		else if (wcsstr (productName, L"Standard") != 0)
-			osname += L"-standard";
-		else if (wcsstr (productName, L"Professional") != 0)
-			osname += L"-pro";
-		else if (wcsstr (productName, L"Business") != 0)
-			osname += L"-business";
-		else if (wcsstr (productName, L"Enterprise") != 0)
-			osname += L"-enterprise";
-		else if (wcsstr (productName, L"Datacenter") != 0)
-			osname += L"-datacenter";
-		else if (wcsstr (productName, L"Ultimate") != 0)
-			osname += L"-ultimate";
-	}
-
-	if (GetSystemMetrics (SM_STARTER))
-		osname += L"-starter";
-	else if (wcsstr (productName, L"Basic") != 0)
-		osname += L"-basic";
-
-	if (Is64BitOs())
-		osname += IsARM()? L"-arm64" : L"-x64";
-
-	if (CurrentOSServicePack > 0)
-	{
-		wstringstream s;
-		s << L"-sp" << CurrentOSServicePack;
-		osname += s.str();
-	}
-
-	return osname;
 }
 
 #ifdef SETUP
@@ -11075,7 +11148,7 @@ void Applink (const char *dest)
 	wchar_t page[TC_MAX_PATH] = {0};
 	wchar_t installDir[TC_MAX_PATH] = {0};
 	BOOL buildUrl = TRUE;
-	int r;
+	INT_PTR r;
 
 	ArrowWaitCursor ();
 	
@@ -11279,7 +11352,7 @@ void Applink (const char *dest)
 	}
 	else
 	{
-		r = (int) ShellExecuteW (NULL, L"open", url, NULL, NULL, SW_SHOWNORMAL);
+		r = (INT_PTR) ShellExecuteW (NULL, L"open", url, NULL, NULL, SW_SHOWNORMAL);
 
 		if (((r == ERROR_FILE_NOT_FOUND) || (r == ERROR_PATH_NOT_FOUND)) && buildUrl)
 		{
@@ -11426,7 +11499,7 @@ int OpenVolume (OpenVolumeContext *context, const wchar_t *volumePath, Password 
 	int volumeType;
 	wchar_t szDiskFile[TC_MAX_PATH], szCFDevice[TC_MAX_PATH];
 	wchar_t szDosDevice[TC_MAX_PATH];
-	char buffer[TC_VOLUME_HEADER_EFFECTIVE_SIZE];
+	unsigned char buffer[TC_VOLUME_HEADER_EFFECTIVE_SIZE];
 	LARGE_INTEGER headerOffset;
 	DWORD dwResult;
 	DISK_GEOMETRY_EX deviceGeometry;
@@ -11577,7 +11650,7 @@ int OpenVolume (OpenVolumeContext *context, const wchar_t *volumePath, Password 
 
 		// Read volume header
 		DWORD bytesRead;
-		if (!ReadEffectiveVolumeHeader (context->IsDevice, context->HostFileHandle, (byte *) buffer, &bytesRead))
+		if (!ReadEffectiveVolumeHeader (context->IsDevice, context->HostFileHandle, (uint8 *) buffer, &bytesRead))
 		{
 			status = ERR_OS_ERROR;
 			goto error;
@@ -11640,7 +11713,7 @@ void CloseVolume (OpenVolumeContext *context)
 }
 
 
-int ReEncryptVolumeHeader (HWND hwndDlg, char *buffer, BOOL bBoot, CRYPTO_INFO *cryptoInfo, Password *password, int pim, BOOL wipeMode)
+int ReEncryptVolumeHeader (HWND hwndDlg, unsigned char *buffer, BOOL bBoot, CRYPTO_INFO *cryptoInfo, Password *password, int pim, BOOL wipeMode)
 {
 	CRYPTO_INFO *newCryptoInfo = NULL;
 
@@ -12162,7 +12235,7 @@ BOOL CALLBACK SecurityTokenKeyfileDlgProc (HWND hwndDlg, UINT msg, WPARAM wParam
 					if (BrowseFiles (hwndDlg, "SELECT_KEYFILE", keyfilePath, bHistory, FALSE))
 					{
 						DWORD keyfileSize;
-						byte *keyfileData = (byte *) LoadFile (keyfilePath, &keyfileSize);
+						uint8 *keyfileData = (uint8 *) LoadFile (keyfilePath, &keyfileSize);
 						if (!keyfileData)
 						{
 							handleWin32Error (hwndDlg, SRC_POS);
@@ -12180,7 +12253,7 @@ BOOL CALLBACK SecurityTokenKeyfileDlgProc (HWND hwndDlg, UINT msg, WPARAM wParam
 
 							if (DialogBoxParamW (hInst, MAKEINTRESOURCEW (IDD_NEW_TOKEN_KEYFILE), hwndDlg, (DLGPROC) NewSecurityTokenKeyfileDlgProc, (LPARAM) &newParams) == IDOK)
 							{
-								vector <byte> keyfileDataVector (keyfileSize);
+								vector <uint8> keyfileDataVector (keyfileSize);
 								memcpy (&keyfileDataVector.front(), keyfileData, keyfileSize);
 
 								try
@@ -12229,7 +12302,7 @@ BOOL CALLBACK SecurityTokenKeyfileDlgProc (HWND hwndDlg, UINT msg, WPARAM wParam
 								WaitCursor();
 								finally_do ({ NormalCursor(); });
 
-								vector <byte> keyfileData;
+								vector <uint8> keyfileData;
 
 								keyfile->GetKeyfileData (keyfileData);
 
@@ -12240,7 +12313,7 @@ BOOL CALLBACK SecurityTokenKeyfileDlgProc (HWND hwndDlg, UINT msg, WPARAM wParam
 									return 1;
 								}
 
-								finally_do_arg (vector <byte> *, &keyfileData, { burn (&finally_arg->front(), finally_arg->size()); });
+								finally_do_arg (vector <uint8> *, &keyfileData, { burn (&finally_arg->front(), finally_arg->size()); });
 
 								if (!SaveBufferToFile ((char *) &keyfileData.front(), keyfilePath, (DWORD) keyfileData.size(), FALSE, FALSE))
 									throw SystemException (SRC_POS);
@@ -13005,7 +13078,7 @@ BOOL IsFileOnReadOnlyFilesystem (const wchar_t *path)
 void CheckFilesystem (HWND hwndDlg, int driveNo, BOOL fixErrors)
 {
 	wchar_t msg[1024], param[1024], cmdPath[MAX_PATH];
-	wchar_t driveRoot[] = { L'A' + (wchar_t) driveNo, L':', 0 };
+	wchar_t driveRoot[] = { (wchar_t) (L'A' + driveNo), L':', 0 };
 
 	if (fixErrors && AskWarnYesNo ("FILESYS_REPAIR_CONFIRM_BACKUP", hwndDlg) == IDNO)
 		return;
@@ -13023,7 +13096,7 @@ void CheckFilesystem (HWND hwndDlg, int driveNo, BOOL fixErrors)
 	ShellExecuteW (NULL, (!IsAdmin() && IsUacSupported()) ? L"runas" : L"open", cmdPath, param, NULL, SW_SHOW);
 }
 
-BOOL BufferContainsPattern (const byte *buffer, size_t bufferSize, const byte *pattern, size_t patternSize)
+BOOL BufferContainsPattern (const uint8 *buffer, size_t bufferSize, const uint8 *pattern, size_t patternSize)
 {
 	if (bufferSize < patternSize)
 		return FALSE;
@@ -13040,14 +13113,14 @@ BOOL BufferContainsPattern (const byte *buffer, size_t bufferSize, const byte *p
 }
 
 
-BOOL BufferContainsString (const byte *buffer, size_t bufferSize, const char *str)
+BOOL BufferContainsString (const uint8 *buffer, size_t bufferSize, const char *str)
 {
-	return BufferContainsPattern (buffer, bufferSize, (const byte*) str, strlen (str));
+	return BufferContainsPattern (buffer, bufferSize, (const uint8*) str, strlen (str));
 }
 
-BOOL BufferContainsWideString (const byte *buffer, size_t bufferSize, const wchar_t *str)
+BOOL BufferContainsWideString (const uint8 *buffer, size_t bufferSize, const wchar_t *str)
 {
-	return BufferContainsPattern (buffer, bufferSize, (const byte*) str, 2 * wcslen (str));
+	return BufferContainsPattern (buffer, bufferSize, (const uint8*) str, 2 * wcslen (str));
 }
 
 
@@ -13251,18 +13324,18 @@ BOOL IsWindowsIsoBurnerAvailable ()
 BOOL LaunchWindowsIsoBurner (HWND hwnd, const wchar_t *isoPath)
 {
 	wchar_t path[MAX_PATH*2] = { 0 };
-	int r;
+	INT_PTR r;
 
 	if (SUCCEEDED(SHGetFolderPath (NULL, CSIDL_SYSTEM, NULL, 0, path)))
 		StringCbCatW (path, MAX_PATH*2, L"\\" ISO_BURNER_TOOL);
 	else
 		StringCbCopyW (path, MAX_PATH*2, L"C:\\Windows\\System32\\" ISO_BURNER_TOOL);
 
-	r = (int) ShellExecute (hwnd, L"open", path, (wstring (L"\"") + isoPath + L"\"").c_str(), NULL, SW_SHOWNORMAL);
+	r = (INT_PTR) ShellExecute (hwnd, L"open", path, (wstring (L"\"") + isoPath + L"\"").c_str(), NULL, SW_SHOWNORMAL);
 
 	if (r <= 32)
 	{
-		SetLastError (r);
+		SetLastError ((DWORD) r);
 		handleWin32Error (hwnd, SRC_POS);
 
 		return FALSE;
@@ -13507,7 +13580,7 @@ void RegisterDriverInf (bool registerFilter, const string& filter, const string&
 					"[veracrypt_reg]\r\n"
 					"HKR,,\"" + filterReg + "\",0x0001" + string (registerFilter ? "0008" : "8002") + ",\"" + filter + "\"\r\n";
 
-	infFile.Write ((byte *) infTxt.c_str(), (DWORD) infTxt.size());
+	infFile.Write ((uint8 *) infTxt.c_str(), (DWORD) infTxt.size());
 	infFile.Close();
 
 	HINF hInf = SetupOpenInfFileW (infFileName.c_str(), NULL, INF_STYLE_OLDNT | INF_STYLE_WIN4, NULL);
@@ -13582,7 +13655,7 @@ void AllowMessageInUIPI (UINT msg)
 	ChangeWindowMessageFilter (msg, MSGFLT_ADD);
 }
 
-BOOL IsRepeatedByteArray (byte value, const byte* buffer, size_t bufferSize)
+BOOL IsRepeatedByteArray (uint8 value, const uint8* buffer, size_t bufferSize)
 {
 	if (buffer && bufferSize)
 	{
@@ -13606,7 +13679,7 @@ BOOL TranslateVolumeID (HWND hwndDlg, wchar_t* pathValue, size_t cchPathValue)
 	size_t pathLen = pathValue? wcslen (pathValue) : 0;
 	if ((pathLen >= 3) && (_wcsnicmp (pathValue, L"ID:", 3) == 0))
 	{
-		std::vector<byte> arr;
+		std::vector<uint8> arr;
 		if (	(pathLen == (3 + 2*VOLUME_ID_SIZE))
 			&& HexWideStringToArray (pathValue + 3, arr)
 			&& (arr.size() == VOLUME_ID_SIZE)
@@ -13692,11 +13765,11 @@ BOOL SetPrivilege(LPTSTR szPrivilegeName, BOOL bEnable)
 				&tkp.Privileges[0].Luid))
 		{
 			tkp.PrivilegeCount = 1;
-			tkp.Privileges[0].Attributes = bEnable? SE_PRIVILEGE_ENABLED : SE_PRIVILEGE_REMOVED;
+			tkp.Privileges[0].Attributes = bEnable? SE_PRIVILEGE_ENABLED : 0;
 			
 			bRet = AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, NULL, NULL);
 			dwLastError = GetLastError ();
-			if ( ERROR_SUCCESS != dwLastError)
+			if (bRet && (ERROR_NOT_ALL_ASSIGNED == dwLastError))
 			{
 				bRet = FALSE;
 			}
@@ -13907,20 +13980,33 @@ static unsigned int __stdcall SecureDesktopThread( LPVOID lpThreadParameter )
 	StringCbCopy(SecureDesktopName, sizeof (SecureDesktopName), pParam->szDesktopName);
 	pParam->hDesk = hSecureDesk;
 
-	// wait for SwitchDesktop to succeed before using it for current thread
-	while (true)
-	{
-		if (SwitchDesktop (hSecureDesk))
-		{
-			break;
-		}
-		Sleep (SECUREDESKTOP_MONOTIR_PERIOD);
-	}
-
 	bNewDesktopSet = SetThreadDesktop (hSecureDesk);
 
 	if (bNewDesktopSet)
 	{
+		// call ImmDisableIME　from imm32.dll to disable IME since it can create issue with secure desktop
+		// cf: https://keepass.info/help/kb/sec_desk.html#ime
+		HMODULE hImmDll = LoadLibraryEx (L"imm32.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+		if (hImmDll)
+		{
+			typedef BOOL (WINAPI *ImmDisableIME_t)(DWORD);
+			ImmDisableIME_t ImmDisableIME = (ImmDisableIME_t) GetProcAddress (hImmDll, "ImmDisableIME");
+			if (ImmDisableIME)
+			{
+				ImmDisableIME (0);
+			}
+		}
+
+		// wait for SwitchDesktop to succeed before using it for current thread
+		while (true)
+		{
+			if (SwitchDesktop (hSecureDesk))
+			{
+				break;
+			}
+			Sleep (SECUREDESKTOP_MONOTIR_PERIOD);
+		}
+
 		// create the thread that will ensure that VeraCrypt secure desktop has always user input
 		// this is done only if the stop event is created successfully
 		HANDLE hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -13950,6 +14036,12 @@ static unsigned int __stdcall SecureDesktopThread( LPVOID lpThreadParameter )
 		}
 
 		pParam->bDlgDisplayed = TRUE;
+
+		// free imm32.dll handle
+		if (hImmDll)
+		{
+			FreeLibrary (hImmDll);
+		}
 	}
 	else
 	{
@@ -14070,19 +14162,20 @@ INT_PTR SecureDesktopDialogBoxParam(
 					// dialog box was indeed displayed in Secure Desktop
 					retValue = param.retValue;
 					bSuccess = TRUE;
-				}
-			}
 
-			if (param.hDesk)
-			{	
-				while (!SwitchDesktop (hOriginalDesk))
+					// switch back to the original desktop
+					while (!SwitchDesktop (hOriginalDesk))
+					{
+						Sleep (SECUREDESKTOP_MONOTIR_PERIOD);
+					}
+
+					SetThreadDesktop (hOriginalDesk);
+				}
+
+				if (param.hDesk)
 				{
-					Sleep (SECUREDESKTOP_MONOTIR_PERIOD);
+					CloseDesktop (param.hDesk);
 				}
-
-				SetThreadDesktop (hOriginalDesk);
-
-				CloseDesktop (param.hDesk);
 			}
 
 			// get the new list of ctfmon.exe processes in order to find the ID of the
@@ -14166,17 +14259,14 @@ void GetInstallationPath (HWND hwndDlg, wchar_t* szInstallPath, DWORD cchSize, B
 		SHGetSpecialFolderLocation (hwndDlg, CSIDL_PROGRAM_FILES, &itemList);
 		SHGetPathFromIDList (itemList, path);
 
-		if (Is64BitOs())
+		// Use a unified default installation path (registry redirection of %ProgramFiles% does not work if the installation path is user-selectable)
+		wstring s = path;
+		size_t p = s.find (L" (x86)");
+		if (p != wstring::npos)
 		{
-			// Use a unified default installation path (registry redirection of %ProgramFiles% does not work if the installation path is user-selectable)
-			wstring s = path;
-			size_t p = s.find (L" (x86)");
-			if (p != wstring::npos)
-			{
-				s = s.substr (0, p);
-				if (_waccess (s.c_str(), 0) != -1)
-					StringCbCopyW (path, sizeof (path), s.c_str());
-			}
+			s = s.substr (0, p);
+			if (_waccess (s.c_str(), 0) != -1)
+				StringCbCopyW (path, sizeof (path), s.c_str());
 		}
 
 		StringCbCatW (path, sizeof(path), L"\\VeraCrypt\\");
@@ -14240,9 +14330,11 @@ BOOL BufferHasPattern (const unsigned char* buffer, size_t bufferLen, const void
 	return bRet;
 }
 
-/* Implementation borrowed from KeePassXC source code (https://github.com/keepassxreboot/keepassxc/blob/release/2.4.0/src/core/Bootstrap.cpp#L150) 
+/* Implementation borrowed from KeePassXC source code (https://github.com/keepassxreboot/keepassxc/blob/2.7.8/src/core/Bootstrap.cpp#L121) 
  *
  * Reduce current user acess rights for this process to the minimum in order to forbid non-admin users from reading the process memory.
+ * Restrict access to changing DACL's after the process is started. This prevents the creator of veracrypt process from simply adding 
+ * the permission to read memory back to the DACL list.
  */
 BOOL ActivateMemoryProtection()
 {
@@ -14252,6 +14344,8 @@ BOOL ActivateMemoryProtection()
     HANDLE hToken = NULL;
     PTOKEN_USER pTokenUser = NULL;
     DWORD cbBufferSize = 0;
+    PSID pOwnerRightsSid = NULL;
+    DWORD pOwnerRightsSidSize = SECURITY_MAX_SID_SIZE;
 
     // Access control list
     PACL pACL = NULL;
@@ -14292,8 +14386,19 @@ BOOL ActivateMemoryProtection()
         goto Cleanup;
     }
 
+    // Retrieve CreaterOwnerRights SID
+    pOwnerRightsSid = (PSID) HeapAlloc(GetProcessHeap(), 0, pOwnerRightsSidSize);
+    if (pOwnerRightsSid == NULL) {
+        goto Cleanup;
+    }
+
+    if (!CreateWellKnownSid(WinCreatorOwnerRightsSid, NULL, pOwnerRightsSid, &pOwnerRightsSidSize)) {
+        goto Cleanup;
+    }
+
     // Calculate the amount of memory that must be allocated for the DACL
-    cbACL = sizeof(ACL) + sizeof(ACCESS_ALLOWED_ACE) + GetLengthSid(pTokenUser->User.Sid);
+    cbACL = sizeof(ACL) + sizeof(ACCESS_ALLOWED_ACE) + GetLengthSid(pTokenUser->User.Sid) 
+        + sizeof(ACCESS_ALLOWED_ACE) + GetLengthSid(pOwnerRightsSid);
 
     // Create and initialize an ACL
     pACL = (PACL) HeapAlloc(GetProcessHeap(), 0, cbACL);
@@ -14315,6 +14420,17 @@ BOOL ActivateMemoryProtection()
         goto Cleanup;
     }
 
+    // Explicitly set "Process Owner" rights to Read Only. The default is Full Control.
+    if (!AddAccessAllowedAce(
+            pACL,
+            ACL_REVISION,
+            READ_CONTROL,
+            pOwnerRightsSid
+            )) {
+        goto Cleanup;
+    }
+
+
     // Set discretionary access control list
     bSuccess = (ERROR_SUCCESS == SetSecurityInfo(GetCurrentProcess(), // object handle
                                     SE_KERNEL_OBJECT, // type of object
@@ -14332,6 +14448,9 @@ Cleanup:
 
     if (pACL != NULL) {
         HeapFree(GetProcessHeap(), 0, pACL);
+    }
+    if (pOwnerRightsSid != NULL) {
+        HeapFree(GetProcessHeap(), 0, pOwnerRightsSid);
     }
     if (pTokenUser != NULL) {
         HeapFree(GetProcessHeap(), 0, pTokenUser);
@@ -14720,7 +14839,7 @@ void SafeOpenURL (LPCWSTR szUrl)
 	}
 }
 
-#if !defined(SETUP) && defined(_WIN64)
+#if !defined(SETUP)
 
 #define RtlGenRandom SystemFunction036
 extern "C" BOOLEAN NTAPI RtlGenRandom(PVOID RandomBuffer, ULONG RandomBufferLength);
@@ -14729,7 +14848,7 @@ void GetAppRandomSeed (unsigned char* pbRandSeed, size_t cbRandSeed)
 {
 	LARGE_INTEGER iSeed;
 	SYSTEMTIME sysTime;
-	byte digest[WHIRLPOOL_DIGESTSIZE];
+	uint8 digest[WHIRLPOOL_DIGESTSIZE];
 	WHIRLPOOL_CTX tctx;
 	size_t count;
 
@@ -15161,7 +15280,7 @@ void PasswordEditDropTarget::GotLeave(void)
 DWORD PasswordEditDropTarget::GotEnter(void)
 {
 	TCHAR szClassName[64];
-	DWORD dwStyles;
+	DWORD_PTR dwStyles;
 	int maxLen;
 	HWND hChild = WindowFromPoint (m_DropPoint);
 	// check that we are on password edit control (we use maximum length to correctly identify password fields since they don't always have ES_PASSWORD style (if the the user checked show password)
@@ -15187,7 +15306,7 @@ void PasswordEditDropTarget::GotDrop(CLIPFORMAT format)
 	if(m_Data)
 	{
 		TCHAR szClassName[64];
-		DWORD dwStyles;
+		DWORD_PTR dwStyles;
 		int maxLen;
 		HWND hChild = WindowFromPoint (m_DropPoint);
 		if (hChild && GetClassName (hChild, szClassName, ARRAYSIZE (szClassName)) && (0 == _tcsicmp (szClassName, _T("EDIT")))
@@ -15676,3 +15795,191 @@ DWORD FastResizeFile (const wchar_t* filePath, __int64 fileSize)
 	return dwRet;
 }
 #endif // VC_COMREG
+
+#if defined(SETUP) && !defined (PORTABLE)
+
+// Helper function to save the current state of the required privileges
+BOOL SaveCurrentPrivilegeState(PPRIVILEGE_STATE state) {
+	if (!state) return FALSE;
+
+	state->takeOwnership = IsPrivilegeEnabled(SE_TAKE_OWNERSHIP_NAME);
+	state->backup = IsPrivilegeEnabled(SE_BACKUP_NAME);
+	state->restore = IsPrivilegeEnabled(SE_RESTORE_NAME);
+
+	return TRUE;
+}
+
+// Helper function to restore the saved state of the required privileges
+BOOL RestorePrivilegeState(const PPRIVILEGE_STATE state) {
+	if (!state) return FALSE;
+
+	BOOL result = TRUE;
+	result &= SetPrivilege(SE_TAKE_OWNERSHIP_NAME, state->takeOwnership);
+	result &= SetPrivilege(SE_BACKUP_NAME, state->backup);
+	result &= SetPrivilege(SE_RESTORE_NAME, state->restore);
+
+	return result;
+}
+
+// Helper function to enable required privileges for file operations
+BOOL EnableRequiredSetupPrivileges(PPRIVILEGE_STATE currentState)
+{
+	BOOL result = TRUE;
+
+	// save the current state of the required privileges
+	ZeroMemory(currentState, sizeof(PRIVILEGE_STATE));
+	SaveCurrentPrivilegeState(currentState);
+
+	// Enable required privileges using the existing SetPrivilege function
+	result &= SetPrivilege(SE_TAKE_OWNERSHIP_NAME, TRUE);
+	result &= SetPrivilege(SE_BACKUP_NAME, TRUE);
+	result &= SetPrivilege(SE_RESTORE_NAME, TRUE);
+
+	return result;
+}
+
+// Helper function to backup security information
+BOOL BackupSecurityInfo(const wchar_t* filePath, PSECURITY_INFO_BACKUP pBackup)
+{
+	BOOL result = FALSE;
+	DWORD dwRes;
+
+	ZeroMemory(pBackup, sizeof(SECURITY_INFO_BACKUP));
+
+	// Get the security descriptor
+	dwRes = GetNamedSecurityInfoW(
+		(LPWSTR)filePath,
+		SE_FILE_OBJECT,
+		OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION |
+		DACL_SECURITY_INFORMATION | SACL_SECURITY_INFORMATION,
+		&pBackup->pOrigOwner,
+		&pBackup->pOrigGroup,
+		&pBackup->pOrigDacl,
+		&pBackup->pOrigSacl,
+		&pBackup->pOrigSD);
+
+	if (dwRes == ERROR_SUCCESS)
+	{
+		// The individual pointers (pOrigOwner, etc.) are now valid
+		// and point to the copied data
+		result = TRUE;
+	}
+
+	return result;
+}
+
+// Helper function to restore security information
+BOOL RestoreSecurityInfo(const wchar_t* filePath, PSECURITY_INFO_BACKUP pBackup)
+{
+	DWORD dwRes;
+	SECURITY_INFORMATION secInfo = 0;
+
+	if (pBackup->pOrigOwner)
+		secInfo |= OWNER_SECURITY_INFORMATION;
+	if (pBackup->pOrigGroup)
+		secInfo |= GROUP_SECURITY_INFORMATION;
+	if (pBackup->pOrigDacl)
+		secInfo |= DACL_SECURITY_INFORMATION;
+	if (pBackup->pOrigSacl)
+		secInfo |= SACL_SECURITY_INFORMATION;
+
+	if (secInfo == 0)
+		return TRUE; // Nothing to restore
+
+	dwRes = SetNamedSecurityInfoW(
+		(LPWSTR)filePath,
+		SE_FILE_OBJECT,
+		secInfo,
+		pBackup->pOrigOwner,
+		pBackup->pOrigGroup,
+		pBackup->pOrigDacl,
+		pBackup->pOrigSacl);
+
+	return (dwRes == ERROR_SUCCESS);
+}
+
+// Helper function to free security backup
+void FreeSecurityBackup(PSECURITY_INFO_BACKUP pBackup)
+{
+	if (pBackup->pOrigSD)
+		LocalFree(pBackup->pOrigSD);
+	ZeroMemory(pBackup, sizeof(SECURITY_INFO_BACKUP));
+}
+
+// Helper function to take ownership and modify file permissions
+BOOL ModifyFileSecurityPermissions(const wchar_t* filePath, PSECURITY_INFO_BACKUP pBackup)
+{
+	BOOL result = FALSE;
+	PSID pAdminSID = NULL;
+	PACL pNewDACL = NULL;
+	BOOL bBackupDone = FALSE;
+
+	// Get Administrator SID
+	SID_IDENTIFIER_AUTHORITY SIDAuthNT = SECURITY_NT_AUTHORITY;
+	if (!AllocateAndInitializeSid(&SIDAuthNT, 2,
+		SECURITY_BUILTIN_DOMAIN_RID,
+		DOMAIN_ALIAS_RID_ADMINS,
+		0, 0, 0, 0, 0, 0,
+		&pAdminSID))
+	{
+		goto cleanup;
+	}
+
+	// Backup original security info
+	if (!BackupSecurityInfo(filePath, pBackup))
+		goto cleanup;
+
+	bBackupDone = TRUE;
+
+	// Take ownership
+	DWORD dwRes = SetNamedSecurityInfoW(
+		(LPWSTR)filePath,
+		SE_FILE_OBJECT,
+		OWNER_SECURITY_INFORMATION,
+		pAdminSID,
+		NULL,
+		NULL,
+		NULL);
+
+	if (dwRes != ERROR_SUCCESS)
+		goto cleanup;
+
+	// Modify DACL
+	EXPLICIT_ACCESS ea;
+	ZeroMemory(&ea, sizeof(EXPLICIT_ACCESS));
+	ea.grfAccessPermissions = GENERIC_ALL;
+	ea.grfAccessMode = SET_ACCESS;
+	ea.grfInheritance = NO_INHERITANCE;
+	ea.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+	ea.Trustee.TrusteeType = TRUSTEE_IS_GROUP;
+	ea.Trustee.ptstrName = (LPTSTR)pAdminSID;
+
+	dwRes = SetEntriesInAcl(1, &ea, NULL, &pNewDACL);
+	if (dwRes != ERROR_SUCCESS)
+		goto cleanup;
+
+	// Apply new DACL
+	dwRes = SetNamedSecurityInfoW(
+		(LPWSTR)filePath,
+		SE_FILE_OBJECT,
+		DACL_SECURITY_INFORMATION,
+		NULL,
+		NULL,
+		pNewDACL,
+		NULL);
+
+	result = (dwRes == ERROR_SUCCESS);
+
+cleanup:
+	if (!result && bBackupDone)
+	{
+		FreeSecurityBackup(pBackup);
+	}
+	if (pNewDACL)
+		LocalFree(pNewDACL);
+	if (pAdminSID)
+		FreeSid(pAdminSID);
+
+	return result;
+}
+#endif

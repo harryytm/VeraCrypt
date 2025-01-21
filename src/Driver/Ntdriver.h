@@ -128,6 +128,7 @@ extern BOOL AllowWindowsDefrag;
 extern int EncryptionIoRequestCount;
 extern int EncryptionItemCount;
 extern int EncryptionFragmentSize;
+extern int EncryptionMaxWorkItems;
 extern BOOL EraseKeysOnShutdown;
 /* Helper macro returning x seconds in units of 100 nanoseconds */
 #define WAIT_SECONDS(x) ((x)*10000000)
@@ -191,7 +192,7 @@ NTSTATUS WriteRegistryConfigFlags (uint32 flags);
 BOOL ValidateIOBufferSize (PIRP irp, size_t requiredBufferSize, ValidateIOBufferSizeType type);
 NTSTATUS GetDeviceSectorSize (PDEVICE_OBJECT deviceObject, ULONG *bytesPerSector);
 NTSTATUS ZeroUnreadableSectors (PDEVICE_OBJECT deviceObject, LARGE_INTEGER startOffset, ULONG size, uint64 *zeroedSectorCount);
-NTSTATUS ReadDeviceSkipUnreadableSectors (PDEVICE_OBJECT deviceObject, byte *buffer, LARGE_INTEGER startOffset, ULONG size, uint64 *badSectorCount);
+NTSTATUS ReadDeviceSkipUnreadableSectors (PDEVICE_OBJECT deviceObject, uint8 *buffer, LARGE_INTEGER startOffset, ULONG size, uint64 *badSectorCount);
 BOOL IsVolumeAccessibleByCurrentUser (PEXTENSION volumeDeviceExtension);
 void GetElapsedTimeInit (LARGE_INTEGER *lastPerfCounter);
 int64 GetElapsedTime (LARGE_INTEGER *lastPerfCounter);

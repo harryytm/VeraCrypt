@@ -286,6 +286,9 @@ typedef NTSTATUS (WINAPI *NtQuerySystemInformationFn)(
 #define	ISO_BURNER_TOOL L"isoburn.exe"
 #define PRINT_TOOL L"notepad.exe"
 
+#define WIN_10_1607_BUILD 14393  // Windows 10 version 1607 corresponds to build 14393
+#define WIN_10_1809_BUILD 17763  // Windows 10 version 1809 corresponds to build 17763
+
 void InitGlobalLocks ();
 void FinalizeGlobalLocks ();
 void cleanup ( void );
@@ -500,6 +503,7 @@ void Debug (char *format, ...);
 void DebugMsgBox (char *format, ...);
 BOOL IsOSAtLeast (OSVersionEnum reqMinOS);
 BOOL IsOSVersionAtLeast (OSVersionEnum reqMinOS, int reqMinServicePack);
+BOOL IsWin10BuildAtLeast(DWORD minBuild);
 BOOL IsSupportedOS ();
 BOOL Is64BitOs ();
 BOOL IsARM();
@@ -540,7 +544,7 @@ BOOL GetSysDevicePaths (HWND hwndDlg);
 BOOL DoDriverInstall (HWND hwndDlg);
 int OpenVolume (OpenVolumeContext *context, const wchar_t *volumePath, Password *password, int pkcs5_prf, int pim, BOOL write, BOOL preserveTimestamps, BOOL useBackupHeader);
 void CloseVolume (OpenVolumeContext *context);
-int ReEncryptVolumeHeader (HWND hwndDlg, char *buffer, BOOL bBoot, CRYPTO_INFO *cryptoInfo, Password *password, int pim, BOOL wipeMode);
+int ReEncryptVolumeHeader (HWND hwndDlg, unsigned char *buffer, BOOL bBoot, CRYPTO_INFO *cryptoInfo, Password *password, int pim, BOOL wipeMode);
 BOOL IsPagingFileActive (BOOL checkNonWindowsPartitionsOnly);
 BOOL IsPagingFileWildcardActive ();
 BOOL DisablePagingFile ();
@@ -550,9 +554,9 @@ BOOL InitSecurityTokenLibrary (HWND hwndDlg);
 BOOL FileHasReadOnlyAttribute (const wchar_t *path);
 BOOL IsFileOnReadOnlyFilesystem (const wchar_t *path);
 void CheckFilesystem (HWND hwndDlg, int driveNo, BOOL fixErrors);
-BOOL BufferContainsPattern (const byte *buffer, size_t bufferSize, const byte *pattern, size_t patternSize);
-BOOL BufferContainsString (const byte *buffer, size_t bufferSize, const char *str);
-BOOL BufferContainsWideString (const byte *buffer, size_t bufferSize, const wchar_t *str);
+BOOL BufferContainsPattern (const uint8 *buffer, size_t bufferSize, const uint8 *pattern, size_t patternSize);
+BOOL BufferContainsString (const uint8 *buffer, size_t bufferSize, const char *str);
+BOOL BufferContainsWideString (const uint8 *buffer, size_t bufferSize, const wchar_t *str);
 int AskNonSysInPlaceEncryptionResume (HWND hwndDlg, BOOL* pbDecrypt);
 BOOL RemoveDeviceWriteProtection (HWND hwndDlg, wchar_t *devicePath);
 void EnableElevatedCursorChange (HWND parent);
@@ -573,7 +577,7 @@ int AddBitmapToImageList(HIMAGELIST himl, HBITMAP hbmImage, HBITMAP hbmMask);
 HRESULT VCStrDupW(LPCWSTR psz, LPWSTR *ppwsz);
 void ProcessEntropyEstimate (HWND hProgress, DWORD* pdwInitialValue, DWORD dwCounter, DWORD dwMaxLevel, DWORD* pdwEntropy);
 void AllowMessageInUIPI (UINT msg);
-BOOL IsRepeatedByteArray (byte value, const byte* buffer, size_t bufferSize);
+BOOL IsRepeatedByteArray (uint8 value, const uint8* buffer, size_t bufferSize);
 BOOL TranslateVolumeID (HWND hwndDlg, wchar_t* pathValue, size_t cchPathValue);
 BOOL CopyTextToClipboard (const wchar_t* txtValue);
 BOOL LaunchElevatedProcess (HWND hwndDlg, const wchar_t* szModPath, const wchar_t* args);
@@ -594,10 +598,32 @@ BitLockerEncryptionStatus GetBitLockerEncryptionStatus(WCHAR driveLetter);
 BOOL IsTestSigningModeEnabled ();
 DWORD SendServiceNotification (DWORD dwNotificationCmd);
 DWORD FastResizeFile (const wchar_t* filePath, __int64 fileSize);
-#ifdef _WIN64
+#if !defined(SETUP)
 void GetAppRandomSeed (unsigned char* pbRandSeed, size_t cbRandSeed);
 #endif
 BOOL IsInternetConnected();
+#if defined(SETUP) && !defined (PORTABLE)
+typedef struct _SECURITY_INFO_BACKUP {
+	PSID pOrigOwner;
+	PSID pOrigGroup;
+	PACL pOrigDacl;
+	PACL pOrigSacl;
+	PSECURITY_DESCRIPTOR pOrigSD;
+} SECURITY_INFO_BACKUP, * PSECURITY_INFO_BACKUP;
+
+typedef struct _PRIVILEGE_STATE {
+	BOOL takeOwnership;
+	BOOL backup;
+	BOOL restore;
+} PRIVILEGE_STATE, * PPRIVILEGE_STATE;
+
+BOOL RestoreSecurityInfo(const wchar_t* filePath, PSECURITY_INFO_BACKUP pBackup);
+void FreeSecurityBackup(PSECURITY_INFO_BACKUP pBackup);
+BOOL SaveCurrentPrivilegeState(PPRIVILEGE_STATE state);
+BOOL RestorePrivilegeState(const PPRIVILEGE_STATE state);
+BOOL EnableRequiredSetupPrivileges(PPRIVILEGE_STATE currentState);
+BOOL ModifyFileSecurityPermissions(const wchar_t* filePath, PSECURITY_INFO_BACKUP pBackup);
+#endif
 #ifdef __cplusplus
 }
 
@@ -714,7 +740,7 @@ std::wstring FindLatestFileOrDirectory (const std::wstring &directory, const wch
 std::wstring GetUserFriendlyVersionString (int version);
 std::wstring IntToWideString (int val);
 std::wstring ArrayToHexWideString (const unsigned char* pbData, int cbData);
-bool HexWideStringToArray (const wchar_t* hexStr, std::vector<byte>& arr);
+bool HexWideStringToArray (const wchar_t* hexStr, std::vector<uint8>& arr);
 std::wstring FindDeviceByVolumeID (const BYTE volumeID [VOLUME_ID_SIZE], BOOL bFromService);
 void RegisterDriverInf (bool registerFilter, const std::string& filter, const std::string& filterReg, HWND ParentWindow, HKEY regKey);
 std::wstring GetTempPathString ();

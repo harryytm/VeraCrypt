@@ -518,13 +518,11 @@ static int ExpandVolume (HWND hwndDlg, wchar_t *lpszVolume, Password *pVolumePas
 	BOOL bTimeStampValid = FALSE;
 	LARGE_INTEGER headerOffset;
 	BOOL backupHeader;
-	byte *wipeBuffer = NULL;
+	uint8 *wipeBuffer = NULL;
 	uint32 workChunkSize = TC_VOLUME_HEADER_GROUP_SIZE;
-#ifdef _WIN64
 	CRYPTO_INFO tmpCI;
 	PCRYPTO_INFO cryptoInfoBackup = NULL;
 	BOOL bIsRamEncryptionEnabled = IsRamEncryptionEnabled();
-#endif
 
 	if (pVolumePassword->Length == 0) return -1;
 
@@ -691,18 +689,22 @@ static int ExpandVolume (HWND hwndDlg, wchar_t *lpszVolume, Password *pVolumePas
 	if (nStatus == ERR_CIPHER_INIT_WEAK_KEY)
 		nStatus = 0;	// We can ignore this error here
 
+	// if the volume master key is vulnerable, print a warning to inform the user
+	if ((nStatus == 0) && cryptoInfo->bVulnerableMasterKey)
+	{
+		DebugAddProgressDlgStatus(hwndDlg, GetString ("ERR_XTS_MASTERKEY_VULNERABLE_SHORT"));
+	}
+
 	if (nStatus != 0)
 	{
 		cryptoInfo = NULL;
 		goto error;
 	}
 
-#ifdef _WIN64
 	if (bIsRamEncryptionEnabled)
 	{
 		VcProtectKeys (cryptoInfo, VcGetEncryptionID (cryptoInfo));
 	}
-#endif
 
 	if (cryptoInfo->HeaderFlags & TC_HEADER_FLAG_ENCRYPTED_SYSTEM)
 	{
@@ -869,7 +871,6 @@ static int ExpandVolume (HWND hwndDlg, wchar_t *lpszVolume, Password *pVolumePas
 		else
 			DebugAddProgressDlgStatus(hwndDlg, GetString("EXPANDER_WRITING_ENCRYPTED_PRIMARY"));
 
-#ifdef _WIN64
 		if (bIsRamEncryptionEnabled)
 		{
 			VirtualLock (&tmpCI, sizeof (CRYPTO_INFO));
@@ -878,7 +879,6 @@ static int ExpandVolume (HWND hwndDlg, wchar_t *lpszVolume, Password *pVolumePas
 			cryptoInfoBackup = cryptoInfo;
 			cryptoInfo = &tmpCI;
 		}
-#endif
 
 		// Prepare new volume header
 		nStatus = CreateVolumeHeaderInMemory (hwndDlg, FALSE,
@@ -899,14 +899,12 @@ static int ExpandVolume (HWND hwndDlg, wchar_t *lpszVolume, Password *pVolumePas
 			cryptoInfo->SectorSize,
 			FALSE ); // use slow poll
 
-#ifdef _WIN64
 		if (bIsRamEncryptionEnabled)
 		{
 			cryptoInfo = cryptoInfoBackup;
 			burn (&tmpCI, sizeof (CRYPTO_INFO));
 			VirtualUnlock (&tmpCI, sizeof (CRYPTO_INFO));
 		}
-#endif
 
 		if (ci != NULL)
 			crypto_close (ci);
@@ -939,7 +937,6 @@ static int ExpandVolume (HWND hwndDlg, wchar_t *lpszVolume, Password *pVolumePas
 			PCRYPTO_INFO dummyInfo = NULL;
 			LARGE_INTEGER hiddenOffset;
 
-#ifdef _WIN64
 			if (bIsRamEncryptionEnabled)
 			{
 				VirtualLock (&tmpCI, sizeof (CRYPTO_INFO));
@@ -948,17 +945,14 @@ static int ExpandVolume (HWND hwndDlg, wchar_t *lpszVolume, Password *pVolumePas
 				cryptoInfoBackup = cryptoInfo;
 				cryptoInfo = &tmpCI;
 			}
-#endif
 
 			nStatus = WriteRandomDataToReservedHeaderAreas (hwndDlg, dev, cryptoInfo, newDataAreaSize, !backupHeader, backupHeader);
-#ifdef _WIN64
 			if (bIsRamEncryptionEnabled)
 			{
 				cryptoInfo = cryptoInfoBackup;
 				burn (&tmpCI, sizeof (CRYPTO_INFO));
 				VirtualUnlock (&tmpCI, sizeof (CRYPTO_INFO));
 			}
-#endif
 			if (nStatus != ERR_SUCCESS)
 				goto error;
 
@@ -1023,9 +1017,9 @@ static int ExpandVolume (HWND hwndDlg, wchar_t *lpszVolume, Password *pVolumePas
 	/* wipe old backup header */
 	if ( !cryptoInfo->LegacyVolume )
 	{
-		byte wipeRandChars [TC_WIPE_RAND_CHAR_COUNT];
-		byte wipeRandCharsUpdate [TC_WIPE_RAND_CHAR_COUNT];
-		byte wipePass;
+		uint8 wipeRandChars [TC_WIPE_RAND_CHAR_COUNT];
+		uint8 wipeRandCharsUpdate [TC_WIPE_RAND_CHAR_COUNT];
+		uint8 wipePass;
 		UINT64_STRUCT unitNo;
 		LARGE_INTEGER offset;
 		WipeAlgorithmId wipeAlgorithm = TC_WIPE_35_GUTMANN;
@@ -1040,7 +1034,7 @@ static int ExpandVolume (HWND hwndDlg, wchar_t *lpszVolume, Password *pVolumePas
 
 		DebugAddProgressDlgStatus(hwndDlg, GetString("EXPANDER_WIPING_OLD_HEADER"));
 
-		wipeBuffer = (byte *) TCalloc (workChunkSize);
+		wipeBuffer = (uint8 *) TCalloc (workChunkSize);
 		if (!wipeBuffer)
 		{
 			nStatus = ERR_OUTOFMEMORY;
