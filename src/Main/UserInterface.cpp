@@ -4,7 +4,7 @@
  by the TrueCrypt License 3.0.
 
  Modifications and additions to the original source code (contained in this file)
- and all other portions of this file are Copyright (c) 2013-2017 IDRIX
+ and all other portions of this file are Copyright (c) 2013-2025 IDRIX
  and are governed by the Apache License 2.0 the full text of which is
  contained in the file License.txt included in VeraCrypt binary and source
  code distribution packages.
@@ -541,6 +541,9 @@ namespace VeraCrypt
 		EX2MSG (HigherFuseVersionRequired,			LangString["LINUX_EX2MSG_HIGHERFUSEVERSIONREQUIRED"]);
 #endif
 
+		EX2MSG (MountPointBlocked,					LangString["MOUNTPOINT_BLOCKED"]);
+		EX2MSG (MountPointNotAllowed,				LangString["MOUNTPOINT_NOTALLOWED"]);
+
 #undef EX2MSG
 		return L"";
 	}
@@ -553,6 +556,9 @@ namespace VeraCrypt
 #ifdef CRYPTOPP_CPUID_AVAILABLE
 		DetectX86Features ();
 #endif
+#if CRYPTOPP_BOOL_ARMV8
+		DetectArmFeatures();
+#endif
 		LangString.Init();
 		Core->Init();
 
@@ -560,6 +566,7 @@ namespace VeraCrypt
 		SetPreferences (CmdLine->Preferences);
 
 		Core->SetApplicationExecutablePath (Application::GetExecutablePath());
+		Core->SetUserEnvPATH (getenv ("PATH"));
 
 		if (!Preferences.NonInteractive)
 		{
@@ -571,6 +578,10 @@ namespace VeraCrypt
 		}
 
 		Core->ForceUseDummySudoPassword (CmdLine->ArgUseDummySudoPassword);
+
+#if defined(TC_UNIX)
+		Core->SetAllowInsecureMount (CmdLine->ArgAllowInsecureMount);
+#endif
 
 		Core->WarningEvent.Connect (EventConnector <UserInterface> (this, &UserInterface::OnWarning));
 		Core->VolumeMountedEvent.Connect (EventConnector <UserInterface> (this, &UserInterface::OnVolumeMounted));
@@ -872,11 +883,30 @@ namespace VeraCrypt
 	}
 
 #if !defined(TC_WINDOWS) && !defined(TC_MACOSX)
-// Function to check if a given executable exists and is executable
-static bool IsExecutable(const string& exe) {
-    return wxFileName::IsFileExecutable("/usr/bin/" + exe) ||
-           wxFileName::IsFileExecutable("/usr/local/bin/" + exe);
-}
+// Define file manager structures with their required parameters
+struct FileManager {
+	const char* name;
+	const char* const* baseArgs;
+	size_t baseArgsCount;
+};
+
+// Array of supported file managers with their parameters
+static const char* const gioArgs[] = {"open"};
+static const char* const kioclient5Args[] = {"exec"};
+static const char* const kfmclientArgs[] = {"openURL"};
+static const char* const exoOpenArgs[] = {"--launch", "FileManager"};
+
+const FileManager fileManagers[] = {
+	{"gio", gioArgs, 1},
+	{"kioclient5", kioclient5Args, 1},
+	{"kfmclient", kfmclientArgs, 1},
+	{"exo-open", exoOpenArgs, 2},
+	{"nautilus", NULL, 0},
+	{"dolphin", NULL, 0},
+	{"caja", NULL, 0},
+	{"thunar", NULL, 0},
+	{"pcmanfm", NULL, 0}
+};
 #endif
 
 	void UserInterface::OpenExplorerWindow (const DirectoryPath &path)
@@ -898,17 +928,21 @@ static bool IsExecutable(const string& exe) {
 		args.push_back (string (path));
 		try
 		{
-			Process::Execute ("open", args);
+			Process::Execute ("/usr/bin/open", args);
 		}
 		catch (exception &e) { ShowError (e); }
 
 #else
 		string directoryPath = string(path);
 		// Primary attempt: Use xdg-open
-		if (IsExecutable("xdg-open")) {
-			try {
+		string errorMsg;
+		string binPath = Process::FindSystemBinary("xdg-open", errorMsg);
+		if (!binPath.empty())
+		{
+			try
+			{
 				args.push_back(directoryPath);
-				Process::Execute("xdg-open", args, 2000);
+				Process::Execute(binPath, args, 2000);
 				return;
 			}
 			catch (TimeOut&) { }
@@ -916,36 +950,23 @@ static bool IsExecutable(const string& exe) {
 		}
 
 		// Fallback attempts: Try known file managers
-		const char* fallbackFileManagers[] = { "gio", "kioclient5", "kfmclient", "exo-open", "nautilus", "dolphin", "caja", "thunar", "pcmanfm" };
-		const size_t numFileManagers = sizeof(fallbackFileManagers) / sizeof(fallbackFileManagers[0]);
-
+		const size_t numFileManagers = sizeof(fileManagers) / sizeof(fileManagers[0]);
 		for (size_t i = 0; i < numFileManagers; ++i) {
-			const char* fm = fallbackFileManagers[i];
-			if (IsExecutable(fm)) {
+			const FileManager& fm = fileManagers[i];
+			string fmPath = Process::FindSystemBinary(fm.name, errorMsg);
+			if (!fmPath.empty()) {
 				args.clear();
-				if (strcmp(fm, "gio") == 0) {
-					args.push_back("open");
-					args.push_back(directoryPath);
+				
+				// Add base arguments first
+				for (size_t j = 0; j < fm.baseArgsCount; ++j) {
+					args.push_back(fm.baseArgs[j]);
 				}
-				else if (strcmp(fm, "kioclient5") == 0) {
-					args.push_back("exec");
-					args.push_back(directoryPath);
-				}
-				else if (strcmp(fm, "kfmclient") == 0) {
-					args.push_back("openURL");
-					args.push_back(directoryPath);
-				}
-				else if (strcmp(fm, "exo-open") == 0) {
-					args.push_back("--launch");
-					args.push_back("FileManager");
-					args.push_back(directoryPath);
-				}
-				else {
-					args.push_back(directoryPath);
-				}
+				
+				// Add path argument
+				args.push_back(directoryPath);
 
 				try {
-					Process::Execute(fm, args, 2000);
+					Process::Execute(fmPath, args, 2000);
 					return; // Success
 				}
 				catch (TimeOut&) { }
@@ -1636,6 +1657,13 @@ static bool IsExecutable(const string& exe) {
 		return sResult;
 	}
 
+#ifdef TC_UNIX
+	bool UserInterface::InsecureMountAllowed () const
+	{
+		return CmdLine->ArgAllowInsecureMount;
+	}
+#endif
+
 	#define VC_CONVERT_EXCEPTION(NAME) if (dynamic_cast<NAME*> (ex)) throw (NAME&) *ex;
 
 	void UserInterface::ThrowException (Exception* ex)
@@ -1723,6 +1751,9 @@ static bool IsExecutable(const string& exe) {
 		VC_CONVERT_EXCEPTION (InvalidEMVPath);
 		VC_CONVERT_EXCEPTION (EMVKeyfileDataNotFound);
 		VC_CONVERT_EXCEPTION (EMVPANNotFound);
+
+		VC_CONVERT_EXCEPTION (MountPointBlocked);
+		VC_CONVERT_EXCEPTION (MountPointNotAllowed);
 
 		throw *ex;
 	}

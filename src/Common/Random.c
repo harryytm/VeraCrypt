@@ -6,7 +6,7 @@
  Encryption for the Masses 2.02a, which is Copyright (c) 1998-2000 Paul Le Roux
  and which is governed by the 'License Agreement for Encryption for the Masses'
  Modifications and additions to the original source code (contained in this file)
- and all other portions of this file are Copyright (c) 2013-2017 IDRIX
+ and all other portions of this file are Copyright (c) 2013-2025 IDRIX
  and are governed by the Apache License 2.0 the full text of which is
  contained in the file License.txt included in VeraCrypt binary and source
  code distribution packages. */
@@ -878,6 +878,7 @@ BOOL SlowPoll (void)
 		}
 	}
 
+#ifndef _M_ARM64
 	// use RDSEED or RDRAND from CPU as source of entropy if present
 	if (	IsCpuRngEnabled() &&
 		(	(HasRDSEED() && RDSEED_getBytes (buffer, sizeof (buffer)))
@@ -886,6 +887,7 @@ BOOL SlowPoll (void)
 	{
 		RandaddBuf (buffer, sizeof (buffer));
 	}
+#endif
 
 	burn(buffer, sizeof (buffer));
 
@@ -1011,6 +1013,7 @@ BOOL FastPoll (void)
 		return FALSE;
 	}
 
+#ifndef _M_ARM64
 	// use RDSEED or RDRAND from CPU as source of entropy if enabled
 	if (	IsCpuRngEnabled() &&
 		(	(HasRDSEED() && RDSEED_getBytes (buffer, sizeof (buffer)))
@@ -1019,6 +1022,7 @@ BOOL FastPoll (void)
 	{
 		RandaddBuf (buffer, sizeof (buffer));
 	}
+#endif
 
 	burn (buffer, sizeof(buffer));
 
